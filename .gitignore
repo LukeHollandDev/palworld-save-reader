@@ -1,0 +1,4 @@
+/savedecode
+*.sav
+*.sav.json
+/dist/
