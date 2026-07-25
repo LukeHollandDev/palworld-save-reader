@@ -17,6 +17,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/LukeHollandDev/palworld-save-reader/internal/palsav/oodle"
 )
 
 const (
@@ -110,7 +112,7 @@ func DecodeContainerWithLimits(data []byte, limits Limits) ([]byte, ContainerHea
 		if sizeErr != nil {
 			return nil, header, sizeErr
 		}
-		raw, err = decompressMermaid(body, int(header.RawSize))
+		raw, err = oodle.Decompress(body, int(header.RawSize))
 	case "PlZ":
 		switch header.SaveType {
 		case 0x31:

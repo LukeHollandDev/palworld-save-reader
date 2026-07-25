@@ -6,7 +6,16 @@
 // and the unresolved original upstream grant.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package palsav
+// Package oodle decodes Oodle Mermaid-compressed buffers.
+//
+// It is kept separate from the rest of palsav because it carries different
+// provenance and copyright from the GVAS and container code around it: it is a
+// port of Powzix's ooz decoder rather than original or Palhelm-derived work.
+// See the repository NOTICE for the exact upstream revisions.
+//
+// Errors keep the "palsav:" prefix because this package is internal and every
+// error it produces reaches callers through palsav's exported API.
+package oodle
 
 import (
 	"encoding/binary"
@@ -28,7 +37,8 @@ type oodleHeader struct {
 	checksums bool
 }
 
-func decompressMermaid(src []byte, outputSize int) ([]byte, error) {
+// Decompress inflates a Mermaid-compressed buffer to exactly outputSize bytes.
+func Decompress(src []byte, outputSize int) ([]byte, error) {
 	if outputSize < 0 {
 		return nil, fmt.Errorf("palsav: negative Mermaid output size")
 	}

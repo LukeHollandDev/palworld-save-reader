@@ -6,7 +6,7 @@
 // and the unresolved original upstream grant.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package palsav
+package oodle
 
 import (
 	"encoding/binary"

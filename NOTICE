@@ -1,9 +1,9 @@
 Palworld save reader
 Copyright (C) 2026 Luke Holland
 
-The Mermaid-compatible decompressor in entropy.go and mermaid.go was ported
-and substantially modified for Go on 2026-07-23 from Powzix's ooz
-implementation, Copyright (C) 2016 Powzix, as distributed by
+The Mermaid-compatible decompressor in internal/palsav/oodle (entropy.go and
+mermaid.go) was ported and substantially modified for Go on 2026-07-23 from
+Powzix's ooz implementation, Copyright (C) 2016 Powzix, as distributed by
 deafdudecomputers/PalworldSaveTools at commit:
 
     f35b4d740259a7a75b11cccf2b7c35f928c1ab77
