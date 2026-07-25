@@ -142,6 +142,37 @@ func (r *archiveReader) f64() (float64, error) {
 	return math.Float64frombits(value), err
 }
 
+// readSlice decodes exactly count values with read. It is the single loop
+// behind both the fixed-size struct bodies and the primitive array element
+// types. Callers must bound count against the remaining bytes first, which
+// validateCount does for every collection read from a save.
+func readSlice[T any](r *archiveReader, count int, read func(*archiveReader) (T, error)) ([]T, error) {
+	values := make([]T, count)
+	for i := range values {
+		value, err := read(r)
+		if err != nil {
+			return nil, err
+		}
+		values[i] = value
+	}
+	return values, nil
+}
+
+// f64s, f32s, and i32s read a fixed number of components for the native
+// Unreal struct layouts, so each case in readStructBody can assign its fields
+// positionally and be checked against the layout at a glance.
+func (r *archiveReader) f64s(count int) ([]float64, error) {
+	return readSlice(r, count, (*archiveReader).f64)
+}
+
+func (r *archiveReader) f32s(count int) ([]float32, error) {
+	return readSlice(r, count, (*archiveReader).f32)
+}
+
+func (r *archiveReader) i32s(count int) ([]int32, error) {
+	return readSlice(r, count, (*archiveReader).i32)
+}
+
 func (r *archiveReader) guid() (GUID, error) {
 	var value GUID
 	var err error

@@ -219,97 +219,54 @@ func readStructBody(reader *archiveReader, structType, path string) (any, error)
 	case "DateTime", "Timespan":
 		return reader.i64()
 	case "Vector":
-		x, err := reader.f64()
+		v, err := reader.f64s(3)
 		if err != nil {
 			return nil, err
 		}
-		y, err := reader.f64()
-		if err != nil {
-			return nil, err
-		}
-		z, err := reader.f64()
-		return Vector{X: x, Y: y, Z: z}, err
+		return Vector{X: v[0], Y: v[1], Z: v[2]}, nil
 	case "Vector2D":
-		x, err := reader.f64()
+		v, err := reader.f64s(2)
 		if err != nil {
 			return nil, err
 		}
-		y, err := reader.f64()
-		return Vector2D{X: x, Y: y}, err
+		return Vector2D{X: v[0], Y: v[1]}, nil
 	case "Quat":
-		x, err := reader.f64()
+		v, err := reader.f64s(4)
 		if err != nil {
 			return nil, err
 		}
-		y, err := reader.f64()
-		if err != nil {
-			return nil, err
-		}
-		z, err := reader.f64()
-		if err != nil {
-			return nil, err
-		}
-		w, err := reader.f64()
-		return Quat{X: x, Y: y, Z: z, W: w}, err
+		return Quat{X: v[0], Y: v[1], Z: v[2], W: v[3]}, nil
 	case "Rotator":
-		pitch, err := reader.f64()
+		v, err := reader.f64s(3)
 		if err != nil {
 			return nil, err
 		}
-		yaw, err := reader.f64()
-		if err != nil {
-			return nil, err
-		}
-		roll, err := reader.f64()
-		return Rotator{Pitch: pitch, Yaw: yaw, Roll: roll}, err
+		return Rotator{Pitch: v[0], Yaw: v[1], Roll: v[2]}, nil
 	case "LinearColor":
-		red, err := reader.f32()
+		v, err := reader.f32s(4)
 		if err != nil {
 			return nil, err
 		}
-		green, err := reader.f32()
-		if err != nil {
-			return nil, err
-		}
-		blue, err := reader.f32()
-		if err != nil {
-			return nil, err
-		}
-		alpha, err := reader.f32()
-		return LinearColor{R: red, G: green, B: blue, A: alpha}, err
+		return LinearColor{R: v[0], G: v[1], B: v[2], A: v[3]}, nil
 	case "Color":
-		blue, err := reader.u8()
+		// Unreal serializes FColor in BGRA order.
+		v, err := reader.take(4)
 		if err != nil {
 			return nil, err
 		}
-		green, err := reader.u8()
-		if err != nil {
-			return nil, err
-		}
-		red, err := reader.u8()
-		if err != nil {
-			return nil, err
-		}
-		alpha, err := reader.u8()
-		return Color{B: blue, G: green, R: red, A: alpha}, err
+		return Color{B: v[0], G: v[1], R: v[2], A: v[3]}, nil
 	case "IntPoint":
-		x, err := reader.i32()
+		v, err := reader.i32s(2)
 		if err != nil {
 			return nil, err
 		}
-		y, err := reader.i32()
-		return IntPoint{X: x, Y: y}, err
+		return IntPoint{X: v[0], Y: v[1]}, nil
 	case "IntVector":
-		x, err := reader.i32()
+		v, err := reader.i32s(3)
 		if err != nil {
 			return nil, err
 		}
-		y, err := reader.i32()
-		if err != nil {
-			return nil, err
-		}
-		z, err := reader.i32()
-		return IntVector{X: x, Y: y, Z: z}, err
+		return IntVector{X: v[0], Y: v[1], Z: v[2]}, nil
 	default:
 		return readPropertyList(reader, path)
 	}
