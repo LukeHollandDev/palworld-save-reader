@@ -31,12 +31,12 @@ func (err *LimitError) Error() string {
 
 func (s *parseState) enter(kind string) error {
 	s.depth++
-	if s.depth > s.cfg.maxDepth {
+	if s.depth > s.cfg.MaxDepth {
 		s.depth--
 		return &LimitError{
 			Kind:  kind + " nesting depth",
 			Value: uint64(s.depth + 1),
-			Limit: uint64(s.cfg.maxDepth),
+			Limit: uint64(s.cfg.MaxDepth),
 		}
 	}
 	return nil
@@ -223,11 +223,11 @@ func (r *archiveReader) fstring() (string, error) {
 		if size > int64(r.remaining()) {
 			return "", fmt.Errorf("palsav: invalid FString length %d at offset %d", count, start)
 		}
-		if size > int64(r.state.cfg.maxStringBytes) {
+		if size > int64(r.state.cfg.MaxStringBytes) {
 			return "", &LimitError{
 				Kind:  "FString bytes",
 				Value: uint64(size),
-				Limit: uint64(r.state.cfg.maxStringBytes),
+				Limit: uint64(r.state.cfg.MaxStringBytes),
 			}
 		}
 		value, err := r.take(int(size))
@@ -246,11 +246,11 @@ func (r *archiveReader) fstring() (string, error) {
 	if units*2 > int64(r.remaining()) {
 		return "", fmt.Errorf("palsav: invalid UTF-16 FString length %d at offset %d", count, start)
 	}
-	if units > int64(r.state.cfg.maxStringBytes/2) {
+	if units > int64(r.state.cfg.MaxStringBytes/2) {
 		return "", &LimitError{
 			Kind:  "UTF-16 FString bytes",
 			Value: uint64(units * 2),
-			Limit: uint64(r.state.cfg.maxStringBytes),
+			Limit: uint64(r.state.cfg.MaxStringBytes),
 		}
 	}
 	value, err := r.take(int(units * 2))
@@ -268,11 +268,11 @@ func (r *archiveReader) fstring() (string, error) {
 }
 
 func validateCount(cfg *decodeConfig, kind string, count uint32, remaining, minimum int) error {
-	if count > cfg.maxCollectionElements {
+	if count > cfg.MaxCollectionElements {
 		return &LimitError{
 			Kind:  kind + " count",
 			Value: uint64(count),
-			Limit: uint64(cfg.maxCollectionElements),
+			Limit: uint64(cfg.MaxCollectionElements),
 		}
 	}
 	if uint64(count) > uint64(math.MaxInt) {

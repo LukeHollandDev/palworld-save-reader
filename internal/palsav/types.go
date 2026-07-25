@@ -35,20 +35,23 @@ type Options struct {
 	TypeHints map[string]string
 }
 
+// decodeConfig is an Options that has been through normalized: every zero
+// field has been replaced by its default, every value has been range-checked,
+// and TypeHints holds the built-in Palworld hints merged with any caller
+// overrides. It is a distinct type so an unvalidated Options cannot reach the
+// decoder by mistake.
 type decodeConfig struct {
-	maxStringBytes        int
-	maxPathBytes          int
-	maxCollectionElements uint32
-	maxDepth              int
-	maxProperties         uint64
-	typeHints             map[string]string
+	Options
 }
 
-func (o Options) normalized() (Options, *decodeConfig, error) {
+// normalized validates o and returns the config the decoder reads. The
+// receiver is a copy, so merging the built-in hints into TypeHints does not
+// disturb the caller's map.
+func (o Options) normalized() (*decodeConfig, error) {
 	var err error
 	o.Limits, err = o.Limits.normalized()
 	if err != nil {
-		return Options{}, nil, err
+		return nil, err
 	}
 	if o.MaxStringBytes == 0 {
 		o.MaxStringBytes = defaultMaxStringBytes
@@ -66,7 +69,7 @@ func (o Options) normalized() (Options, *decodeConfig, error) {
 		o.MaxProperties = defaultMaxProperties
 	}
 	if o.MaxStringBytes < 1 || o.MaxPathBytes < 1 || o.MaxCollectionElements < 1 || o.MaxDepth < 1 || o.MaxProperties < 1 {
-		return Options{}, nil, fmt.Errorf("palsav: GVAS limits must be positive")
+		return nil, fmt.Errorf("palsav: GVAS limits must be positive")
 	}
 	hints := make(map[string]string, len(palworldTypeHints)+len(o.TypeHints))
 	for path, hint := range palworldTypeHints {
@@ -74,18 +77,12 @@ func (o Options) normalized() (Options, *decodeConfig, error) {
 	}
 	for path, hint := range o.TypeHints {
 		if path == "" || hint == "" {
-			return Options{}, nil, fmt.Errorf("palsav: empty type-hint path or value")
+			return nil, fmt.Errorf("palsav: empty type-hint path or value")
 		}
 		hints[path] = hint
 	}
-	return o, &decodeConfig{
-		maxStringBytes:        o.MaxStringBytes,
-		maxPathBytes:          o.MaxPathBytes,
-		maxCollectionElements: o.MaxCollectionElements,
-		maxDepth:              o.MaxDepth,
-		maxProperties:         o.MaxProperties,
-		typeHints:             hints,
-	}, nil
+	o.TypeHints = hints
+	return &decodeConfig{Options: o}, nil
 }
 
 // Save is a decoded .sav container and GVAS object.

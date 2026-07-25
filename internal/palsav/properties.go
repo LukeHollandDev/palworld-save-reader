@@ -30,11 +30,11 @@ func readPropertyList(reader *archiveReader, path string) (Properties, error) {
 		if err != nil {
 			return nil, err
 		}
-		if reader.state.properties >= reader.state.cfg.maxProperties {
+		if reader.state.properties >= reader.state.cfg.MaxProperties {
 			return nil, &LimitError{
 				Kind:  "property count",
 				Value: reader.state.properties + 1,
-				Limit: reader.state.cfg.maxProperties,
+				Limit: reader.state.cfg.MaxProperties,
 			}
 		}
 		reader.state.properties++
@@ -558,7 +558,7 @@ func structHint(cfg *decodeConfig, path, valueType string) string {
 	if valueType != "StructProperty" {
 		return ""
 	}
-	if hint := cfg.typeHints[path]; hint != "" {
+	if hint := cfg.TypeHints[path]; hint != "" {
 		return hint
 	}
 	return "StructProperty"
@@ -613,11 +613,11 @@ func minimumStructSize(structType string) int {
 
 func joinPath(cfg *decodeConfig, parent, child string) (string, error) {
 	size := uint64(len(parent)) + 1 + uint64(len(child))
-	if size > uint64(cfg.maxPathBytes) {
+	if size > uint64(cfg.MaxPathBytes) {
 		return "", &LimitError{
 			Kind:  "property path bytes",
 			Value: size,
-			Limit: uint64(cfg.maxPathBytes),
+			Limit: uint64(cfg.MaxPathBytes),
 		}
 	}
 	if parent == "" {

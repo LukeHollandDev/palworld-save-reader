@@ -20,11 +20,11 @@ func Decode(data []byte) (*Save, error) {
 
 // DecodeWithOptions is Decode with explicit resource limits and type hints.
 func DecodeWithOptions(data []byte, options Options) (*Save, error) {
-	options, cfg, err := options.normalized()
+	cfg, err := options.normalized()
 	if err != nil {
 		return nil, err
 	}
-	raw, container, err := DecodeContainerWithLimits(data, options.Limits)
+	raw, container, err := DecodeContainerWithLimits(data, cfg.Limits)
 	if err != nil {
 		return nil, err
 	}
@@ -45,13 +45,13 @@ func ParseGVAS(data []byte) (*Save, error) {
 // ParseGVASWithOptions is ParseGVAS with explicit resource limits and type
 // hints. MaxInputBytes and MaxOutputBytes both bound the supplied GVAS buffer.
 func ParseGVASWithOptions(data []byte, options Options) (*Save, error) {
-	options, cfg, err := options.normalized()
+	cfg, err := options.normalized()
 	if err != nil {
 		return nil, err
 	}
-	limit := options.Limits.MaxOutputBytes
-	if options.Limits.MaxInputBytes < limit {
-		limit = options.Limits.MaxInputBytes
+	limit := cfg.Limits.MaxOutputBytes
+	if cfg.Limits.MaxInputBytes < limit {
+		limit = cfg.Limits.MaxInputBytes
 	}
 	if int64(len(data)) > limit {
 		return nil, &LimitError{
@@ -70,7 +70,7 @@ func Load(path string) (*Save, error) {
 
 // LoadWithOptions is Load with explicit resource limits and type hints.
 func LoadWithOptions(path string, options Options) (*Save, error) {
-	normalized, _, err := options.normalized()
+	cfg, err := options.normalized()
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func LoadWithOptions(path string, options Options) (*Save, error) {
 	}
 	defer file.Close()
 
-	readLimit := normalized.Limits.MaxInputBytes
+	readLimit := cfg.Limits.MaxInputBytes
 	if readLimit < math.MaxInt64 {
 		readLimit++
 	}
@@ -88,14 +88,16 @@ func LoadWithOptions(path string, options Options) (*Save, error) {
 	if err != nil {
 		return nil, fmt.Errorf("palsav: read %q: %w", path, err)
 	}
-	if int64(len(data)) > normalized.Limits.MaxInputBytes {
+	if int64(len(data)) > cfg.Limits.MaxInputBytes {
 		return nil, &LimitError{
 			Kind:  "file input bytes",
 			Value: uint64(len(data)),
-			Limit: uint64(normalized.Limits.MaxInputBytes),
+			Limit: uint64(cfg.Limits.MaxInputBytes),
 		}
 	}
-	return DecodeWithOptions(data, normalized)
+	// DecodeWithOptions normalizes again; passing the caller's Options rather
+	// than cfg.Options keeps that second pass idempotent.
+	return DecodeWithOptions(data, options)
 }
 
 func parseGVAS(data []byte, cfg *decodeConfig) (*Save, error) {

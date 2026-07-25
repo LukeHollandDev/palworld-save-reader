@@ -5,6 +5,59 @@ package palsav
 
 import "testing"
 
+// TestNormalizedMergesHintsWithoutMutatingOptions covers the merge that
+// decodeConfig now stores in the embedded Options: caller hints must override
+// the built-in Palworld hints, defaults must fill in, and the caller's own map
+// must come back untouched.
+func TestNormalizedMergesHintsWithoutMutatingOptions(t *testing.T) {
+	const builtIn = ".worldSaveData.BaseCampSaveData.Key"
+	if palworldTypeHints[builtIn] != "Guid" {
+		t.Fatalf("test assumes a built-in hint at %s", builtIn)
+	}
+
+	caller := map[string]string{
+		builtIn:       "StructProperty", // overrides a built-in
+		".Custom.Key": "Guid",           // adds a new one
+	}
+	options := Options{TypeHints: caller}
+
+	cfg, err := options.normalized()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.TypeHints[builtIn]; got != "StructProperty" {
+		t.Fatalf("caller hint did not override built-in: %q", got)
+	}
+	if got := cfg.TypeHints[".Custom.Key"]; got != "Guid" {
+		t.Fatalf("caller hint missing: %q", got)
+	}
+	if got := cfg.TypeHints[".worldSaveData.GroupSaveDataMap.Key"]; got != "Guid" {
+		t.Fatalf("built-in hint lost during merge: %q", got)
+	}
+	if cfg.MaxDepth != defaultMaxDepth || cfg.Limits.MaxInputBytes != defaultMaxInputBytes {
+		t.Fatalf("defaults not applied: depth=%d input=%d", cfg.MaxDepth, cfg.Limits.MaxInputBytes)
+	}
+
+	if len(caller) != 2 || caller[builtIn] != "StructProperty" {
+		t.Fatalf("normalized mutated the caller's hint map: %#v", caller)
+	}
+	if options.MaxDepth != 0 {
+		t.Fatalf("normalized mutated the caller's Options: %#v", options)
+	}
+}
+
+func TestNormalizedRejectsEmptyHints(t *testing.T) {
+	if _, err := (Options{TypeHints: map[string]string{"": "Guid"}}).normalized(); err == nil {
+		t.Fatal("accepted an empty hint path")
+	}
+	if _, err := (Options{TypeHints: map[string]string{".A": ""}}).normalized(); err == nil {
+		t.Fatal("accepted an empty hint value")
+	}
+	if _, err := (Options{MaxDepth: -1}).normalized(); err == nil {
+		t.Fatal("accepted a negative MaxDepth")
+	}
+}
+
 // TestTruncatedPayloadsDegradeSafely feeds every struct body and array element
 // encoding at every length shorter than the correct one. Each case must either
 // fail the parse outright or fall back to RawValue preserving the exact bytes.
