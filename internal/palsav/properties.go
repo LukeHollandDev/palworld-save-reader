@@ -345,133 +345,49 @@ func readArrayValue(reader *archiveReader, property *Property, path string) (any
 	return ArrayValue{InnerType: innerType, Values: values}, nil
 }
 
+// readTypedArray decodes count primitive elements into a slice of the matching
+// Go type. The element type is deliberately concrete rather than []any:
+// consumers rely on []int16 staying []int16.
+//
+// count is safe to narrow to int because readArrayValue calls validateCount,
+// which rejects any count above maxInt, before reaching here.
 func readTypedArray(reader *archiveReader, valueType string, count uint32, path string) (any, error) {
+	elements := int(count)
 	switch valueType {
 	case "ByteProperty", "UInt8Property":
-		return reader.take(int(count))
+		return reader.take(elements)
 	case "Int8Property":
-		values := make([]int8, count)
-		for i := range values {
-			value, err := reader.i8()
-			if err != nil {
-				return nil, err
-			}
-			values[i] = value
-		}
-		return values, nil
+		return readSlice(reader, elements, (*archiveReader).i8)
 	case "BoolProperty":
-		values := make([]bool, count)
-		for i := range values {
-			value, err := reader.u8()
-			if err != nil {
-				return nil, err
-			}
-			values[i] = value != 0
-		}
-		return values, nil
+		return readSlice(reader, elements, func(r *archiveReader) (bool, error) {
+			value, err := r.u8()
+			return value != 0, err
+		})
 	case "Int16Property":
-		values := make([]int16, count)
-		for i := range values {
-			value, err := reader.i16()
-			if err != nil {
-				return nil, err
-			}
-			values[i] = value
-		}
-		return values, nil
+		return readSlice(reader, elements, (*archiveReader).i16)
 	case "UInt16Property":
-		values := make([]uint16, count)
-		for i := range values {
-			value, err := reader.u16()
-			if err != nil {
-				return nil, err
-			}
-			values[i] = value
-		}
-		return values, nil
+		return readSlice(reader, elements, (*archiveReader).u16)
 	case "IntProperty", "FixedPoint64Property":
-		values := make([]int32, count)
-		for i := range values {
-			value, err := reader.i32()
-			if err != nil {
-				return nil, err
-			}
-			values[i] = value
-		}
-		return values, nil
+		return readSlice(reader, elements, (*archiveReader).i32)
 	case "UInt32Property":
-		values := make([]uint32, count)
-		for i := range values {
-			value, err := reader.u32()
-			if err != nil {
-				return nil, err
-			}
-			values[i] = value
-		}
-		return values, nil
+		return readSlice(reader, elements, (*archiveReader).u32)
 	case "Int64Property":
-		values := make([]int64, count)
-		for i := range values {
-			value, err := reader.i64()
-			if err != nil {
-				return nil, err
-			}
-			values[i] = value
-		}
-		return values, nil
+		return readSlice(reader, elements, (*archiveReader).i64)
 	case "UInt64Property":
-		values := make([]uint64, count)
-		for i := range values {
-			value, err := reader.u64()
-			if err != nil {
-				return nil, err
-			}
-			values[i] = value
-		}
-		return values, nil
+		return readSlice(reader, elements, (*archiveReader).u64)
 	case "FloatProperty":
-		values := make([]float32, count)
-		for i := range values {
-			value, err := reader.f32()
-			if err != nil {
-				return nil, err
-			}
-			values[i] = value
-		}
-		return values, nil
+		return readSlice(reader, elements, (*archiveReader).f32)
 	case "DoubleProperty":
-		values := make([]float64, count)
-		for i := range values {
-			value, err := reader.f64()
-			if err != nil {
-				return nil, err
-			}
-			values[i] = value
-		}
-		return values, nil
+		return readSlice(reader, elements, (*archiveReader).f64)
 	case "EnumProperty", "NameProperty", "StrProperty", "ObjectProperty":
-		values := make([]string, count)
-		for i := range values {
-			value, err := reader.fstring()
-			if err != nil {
-				return nil, err
-			}
-			values[i] = value
-		}
-		return values, nil
+		return readSlice(reader, elements, (*archiveReader).fstring)
 	default:
 		if valueType != "Guid" {
 			return nil, fmt.Errorf("unsupported array element type %q", valueType)
 		}
-		values := make([]any, count)
-		for i := range values {
-			value, err := readBareValue(reader, valueType, "", path)
-			if err != nil {
-				return nil, err
-			}
-			values[i] = value
-		}
-		return values, nil
+		return readSlice(reader, elements, func(r *archiveReader) (any, error) {
+			return readBareValue(r, valueType, "", path)
+		})
 	}
 }
 

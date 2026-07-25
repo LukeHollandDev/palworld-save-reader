@@ -96,15 +96,26 @@ func (value *MapValue) Entries() ([]MapEntry, error) {
 	if value == nil {
 		return nil, fmt.Errorf("palsav: nil MapValue")
 	}
-	entries := make([]MapEntry, 0, value.Count)
 	iterator := value.Iterator()
-	for iterator.Next() {
-		entries = append(entries, iterator.Entry())
+	return collect(value.Count, iterator.Next, iterator.Entry, iterator.Err)
+}
+
+// collect drains an iterator into a slice. The three eager accumulators below
+// differ only in their element type and iterator, so they share one loop.
+func collect[T any](
+	count uint32,
+	next func() bool,
+	current func() T,
+	failure func() error,
+) ([]T, error) {
+	values := make([]T, 0, count)
+	for next() {
+		values = append(values, current())
 	}
-	if err := iterator.Err(); err != nil {
+	if err := failure(); err != nil {
 		return nil, err
 	}
-	return entries, nil
+	return values, nil
 }
 
 // SetIterator decodes one ordered set element at a time.
@@ -181,15 +192,8 @@ func (value *SetValue) Values() ([]any, error) {
 	if value == nil {
 		return nil, fmt.Errorf("palsav: nil SetValue")
 	}
-	values := make([]any, 0, value.Count)
 	iterator := value.Iterator()
-	for iterator.Next() {
-		values = append(values, iterator.Value())
-	}
-	if err := iterator.Err(); err != nil {
-		return nil, err
-	}
-	return values, nil
+	return collect(value.Count, iterator.Next, iterator.Value, iterator.Err)
 }
 
 // StructIterator decodes one ArrayProperty<StructProperty> value at a time.
@@ -262,13 +266,6 @@ func (array *StructArray) Values() ([]any, error) {
 	if array == nil {
 		return nil, fmt.Errorf("palsav: nil StructArray")
 	}
-	values := make([]any, 0, array.Count)
 	iterator := array.Iterator()
-	for iterator.Next() {
-		values = append(values, iterator.Value())
-	}
-	if err := iterator.Err(); err != nil {
-		return nil, err
-	}
-	return values, nil
+	return collect(array.Count, iterator.Next, iterator.Value, iterator.Err)
 }
