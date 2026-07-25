@@ -60,7 +60,7 @@ func TestNormalizedRejectsEmptyHints(t *testing.T) {
 
 // TestTruncatedPayloadsDegradeSafely feeds every struct body and array element
 // encoding at every length shorter than the correct one. Each case must either
-// fail the parse outright or fall back to RawValue preserving the exact bytes.
+// fail the parse outright or fall back to UndecodedValue preserving the exact bytes.
 // Returning a partially decoded value would silently corrupt a save, and these
 // are the error branches that the fixed-size struct readers and the generic
 // slice reader replace.
@@ -69,8 +69,8 @@ func TestTruncatedPayloadsDegradeSafely(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			// The untruncated payload must decode, otherwise the case is wrong.
 			property := decodeSingleProperty(t, testCase, testCase.payload)
-			if _, raw := property.Value.(RawValue); raw {
-				t.Fatalf("well-formed payload decoded to RawValue: %v", property.Value)
+			if _, raw := property.Value.(UndecodedValue); raw {
+				t.Fatalf("well-formed payload decoded to UndecodedValue: %v", property.Value)
 			}
 
 			for length := 0; length < len(testCase.payload); length++ {
@@ -83,12 +83,12 @@ func TestTruncatedPayloadsDegradeSafely(t *testing.T) {
 				if found == nil {
 					t.Fatalf("length %d: property missing from decode", length)
 				}
-				rawValue, ok := found.Value.(RawValue)
+				rawValue, ok := found.Value.(UndecodedValue)
 				if !ok {
 					t.Fatalf("length %d: decoded %#v from a truncated payload", length, found.Value)
 				}
 				if string(rawValue.Data) != string(truncated) {
-					t.Fatalf("length %d: RawValue kept %d bytes, want %d", length, len(rawValue.Data), length)
+					t.Fatalf("length %d: UndecodedValue kept %d bytes, want %d", length, len(rawValue.Data), length)
 				}
 			}
 		})

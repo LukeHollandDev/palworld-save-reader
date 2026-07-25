@@ -73,7 +73,7 @@ func readPropertyList(reader *archiveReader, path string) (Properties, error) {
 				return nil, decodeErr
 			}
 			reader.state.properties = propertyCount
-			property.Value = RawValue{Data: payload, Reason: decodeErr.Error()}
+			property.Value = UndecodedValue{Data: payload, Reason: decodeErr.Error()}
 		} else {
 			property.Value = value
 		}

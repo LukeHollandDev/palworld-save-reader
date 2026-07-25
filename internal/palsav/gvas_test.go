@@ -99,8 +99,8 @@ func TestPropertyTagLayoutAndFallback(t *testing.T) {
 		t.Fatalf("bool = %#v", save.Properties[2].Value)
 	}
 	for _, index := range []int{3, 4} {
-		if _, ok := save.Properties[index].Value.(RawValue); !ok {
-			t.Fatalf("%s value = %T, want RawValue", save.Properties[index].Name, save.Properties[index].Value)
+		if _, ok := save.Properties[index].Value.(UndecodedValue); !ok {
+			t.Fatalf("%s value = %T, want UndecodedValue", save.Properties[index].Name, save.Properties[index].Value)
 		}
 	}
 	if save.Properties[5].Value != "Pal 世界" {

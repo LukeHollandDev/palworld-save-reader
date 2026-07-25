@@ -54,7 +54,7 @@ var propertyTypes = []propertyTypeCase{
 		encode: func(a *testArchive) { a.fstring("/o") }, want: "/o"},
 
 	// Tags the reader recognises but deliberately does not decode. These
-	// always fall back to RawValue, which preserves the exact bytes.
+	// always fall back to UndecodedValue, which preserves the exact bytes.
 	{name: "TextProperty", plainTag: true, minimum: 1, taggedRaw: true},
 	{name: "SoftObjectProperty", plainTag: true, minimum: 1, taggedRaw: true},
 	{name: "WeakObjectProperty", plainTag: true, minimum: 1, taggedRaw: true},
@@ -165,7 +165,7 @@ func TestPropertyTypeSwitches(t *testing.T) {
 }
 
 // TestTaggedPayloadDecodability checks the split between tags whose payload the
-// reader decodes and tags it accepts but leaves as RawValue.
+// reader decodes and tags it accepts but leaves as UndecodedValue.
 func TestTaggedPayloadDecodability(t *testing.T) {
 	for _, testCase := range propertyTypes {
 		if !testCase.plainTag {
@@ -188,9 +188,9 @@ func TestTaggedPayloadDecodability(t *testing.T) {
 			if property == nil {
 				t.Fatal("property missing")
 			}
-			_, raw := property.Value.(RawValue)
+			_, raw := property.Value.(UndecodedValue)
 			if raw != testCase.taggedRaw {
-				t.Errorf("RawValue fallback = %v, want %v (value %#v)", raw, testCase.taggedRaw, property.Value)
+				t.Errorf("UndecodedValue fallback = %v, want %v (value %#v)", raw, testCase.taggedRaw, property.Value)
 			}
 		})
 	}

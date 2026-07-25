@@ -41,7 +41,7 @@ func TestApplyNestedRepeatedProjection(t *testing.T) {
 			}
 		}
 	}`)
-	output, diagnostics, err := Apply(properties, document, Options{Explain: true})
+	output, diagnostics, err := Apply(properties, document, ApplyOptions{Explain: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,13 +67,13 @@ func TestApplyStrictAndPartialMissingFields(t *testing.T) {
 		"saveType": "player.sav",
 		"shape": {"NickName": "", "Level": 0, "Missing": false}
 	}`)
-	if _, diagnostics, err := Apply(properties, document, Options{}); err == nil {
+	if _, diagnostics, err := Apply(properties, document, ApplyOptions{}); err == nil {
 		t.Fatal("strict Apply succeeded with a missing field")
 	} else if !hasDiagnostic(diagnostics, DiagnosticMissing) {
 		t.Fatalf("diagnostics = %#v", diagnostics)
 	}
 
-	output, diagnostics, err := Apply(properties, document, Options{AllowPartial: true})
+	output, diagnostics, err := Apply(properties, document, ApplyOptions{AllowPartial: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestApplyRejectsTypeMismatch(t *testing.T) {
 		"saveType": "player.sav",
 		"shape": {"Level": 0}
 	}`)
-	_, diagnostics, err := Apply(properties, document, Options{})
+	_, diagnostics, err := Apply(properties, document, ApplyOptions{})
 	if err == nil || !hasDiagnostic(diagnostics, DiagnosticIncompatible) {
 		t.Fatalf("err = %v, diagnostics = %#v", err, diagnostics)
 	}
@@ -112,7 +112,7 @@ func TestApplyRejectsAmbiguousCandidates(t *testing.T) {
 		"saveType": "player.sav",
 		"shape": {"NickName": ""}
 	}`)
-	_, diagnostics, err := Apply(properties, document, Options{})
+	_, diagnostics, err := Apply(properties, document, ApplyOptions{})
 	if err == nil || !hasDiagnostic(diagnostics, DiagnosticAmbiguous) {
 		t.Fatalf("err = %v, diagnostics = %#v", err, diagnostics)
 	}
@@ -133,7 +133,7 @@ func TestApplyNullCopiesAnyCompatibleValue(t *testing.T) {
 		"saveType": "player.sav",
 		"shape": {"Position": null}
 	}`)
-	output, _, err := Apply(properties, document, Options{})
+	output, _, err := Apply(properties, document, ApplyOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func mustParseDocument(t *testing.T, input string) *Document {
 	return document
 }
 
-func compactJSON(t *testing.T, value *Value) string {
+func compactJSON(t *testing.T, value *Output) string {
 	t.Helper()
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -186,7 +186,7 @@ func FuzzApplySynthetic(fuzz *testing.F) {
 			t.Skip()
 		}
 		properties := palsav.Properties{{Name: field, Value: value}}
-		output, _, err := Apply(properties, document, Options{})
+		output, _, err := Apply(properties, document, ApplyOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -99,7 +99,7 @@ func run(arguments []string, stdout, stderr io.Writer) int {
 		stdout,
 		flags.Arg(0),
 		document,
-		projection.Options{AllowPartial: *allowPartial, Explain: *explain},
+		projection.ApplyOptions{AllowPartial: *allowPartial, Explain: *explain},
 	)
 	if len(diagnostics) != 0 {
 		if diagnosticErr := writeDiagnostics(stderr, diagnostics); diagnosticErr != nil {
@@ -152,7 +152,7 @@ func dumpProjection(
 	stdout io.Writer,
 	path string,
 	document *projection.Document,
-	options projection.Options,
+	options projection.ApplyOptions,
 ) ([]projection.Diagnostic, error) {
 	save, err := palsav.Load(path)
 	if err != nil {
@@ -224,7 +224,7 @@ func expand(value any) any {
 		return map[string]any{"structType": typed.Type, "value": expand(typed.Value)}
 	case palsav.EnumValue:
 		return map[string]any{"enum": typed.Type, "value": typed.Value}
-	case palsav.RawValue:
+	case palsav.UndecodedValue:
 		return map[string]any{
 			"raw":    base64.StdEncoding.EncodeToString(typed.Data),
 			"bytes":  len(typed.Data),

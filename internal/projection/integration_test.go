@@ -36,7 +36,7 @@ func TestPlayerDetailsPresetAgainstPrivateFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			output, diagnostics, err := Apply(save.Properties, document, Options{})
+			output, diagnostics, err := Apply(save.Properties, document, ApplyOptions{})
 			if err != nil {
 				t.Fatalf("Apply: %v; diagnostics: %#v", err, diagnostics)
 			}

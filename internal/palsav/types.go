@@ -170,7 +170,7 @@ type Property struct {
 	PropertyGUID *GUID
 	Value        any
 	// Raw is the exact size-counted value payload. It aliases the decoded GVAS
-	// buffer and remains available even when Value is a RawValue.
+	// buffer and remains available even when Value is an UndecodedValue.
 	Raw []byte
 	// Offset is the absolute byte offset of the property name in Save.Raw.
 	Offset int
@@ -187,8 +187,8 @@ type PropertyMeta struct {
 	ValueType  string
 }
 
-// RawValue preserves a payload that is unknown or could not be interpreted.
-type RawValue struct {
+// UndecodedValue preserves a payload that is unknown or could not be interpreted.
+type UndecodedValue struct {
 	Data   []byte
 	Reason string
 }

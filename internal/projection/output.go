@@ -8,26 +8,29 @@ import (
 	"encoding/json"
 )
 
-// Value is a projected JSON value. Its custom marshaler preserves projection
-// object key order.
-type Value struct {
+// Output is the third of the package's three parallel trees, all keyed by the
+// same Kind: documentNode is what the caller asked for, sourceNode is what the
+// save contains, and Output is the result of matching one against the other.
+//
+// Its custom marshaler preserves projection object key order.
+type Output struct {
 	kind   Kind
-	fields []valueField
-	items  []*Value
+	fields []outputField
+	items  []*Output
 	scalar any
 }
 
-type valueField struct {
+type outputField struct {
 	name  string
-	value *Value
+	value *Output
 }
 
-func nullValue() *Value {
-	return &Value{kind: KindNull}
+func nullOutput() *Output {
+	return &Output{kind: KindNull}
 }
 
 // MarshalJSON preserves the ordering in the projection shape.
-func (value *Value) MarshalJSON() ([]byte, error) {
+func (value *Output) MarshalJSON() ([]byte, error) {
 	if value == nil || value.kind == KindNull {
 		return []byte("null"), nil
 	}

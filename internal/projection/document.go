@@ -96,16 +96,18 @@ type Shape struct {
 	Element *Shape
 }
 
-type syntaxValue struct {
+// documentNode is the projection document as parsed from JSON, before it
+// becomes a Shape. It is the "what was asked for" tree; see Output.
+type documentNode struct {
 	kind   Kind
-	fields []syntaxField
-	items  []*syntaxValue
+	fields []documentField
+	items  []*documentNode
 	value  any
 }
 
-type syntaxField struct {
+type documentField struct {
 	name  string
-	value *syntaxValue
+	value *documentNode
 }
 
 // Parse validates and parses a projection document.
@@ -116,7 +118,7 @@ func Parse(data []byte) (*Document, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	nodes := 0
-	root, err := readSyntaxValue(decoder, "$", 0, &nodes)
+	root, err := readDocumentNode(decoder, "$", 0, &nodes)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +133,7 @@ func Parse(data []byte) (*Document, error) {
 	}
 
 	document := &Document{}
-	var shapeValue *syntaxValue
+	var shapeValue *documentNode
 	seen := make(map[string]struct{}, len(root.fields))
 	for _, field := range root.fields {
 		if _, exists := seen[field.name]; exists {
@@ -203,7 +205,7 @@ func ParseReader(reader io.Reader) (*Document, error) {
 	return Parse(data)
 }
 
-func readSyntaxValue(decoder *json.Decoder, path string, depth int, nodes *int) (*syntaxValue, error) {
+func readDocumentNode(decoder *json.Decoder, path string, depth int, nodes *int) (*documentNode, error) {
 	if depth > maxShapeDepth {
 		return nil, invalid(path, "nesting exceeds %d levels", maxShapeDepth)
 	}
@@ -217,17 +219,17 @@ func readSyntaxValue(decoder *json.Decoder, path string, depth int, nodes *int) 
 	}
 	switch value := token.(type) {
 	case nil:
-		return &syntaxValue{kind: KindNull}, nil
+		return &documentNode{kind: KindNull}, nil
 	case bool:
-		return &syntaxValue{kind: KindBoolean, value: value}, nil
+		return &documentNode{kind: KindBoolean, value: value}, nil
 	case string:
-		return &syntaxValue{kind: KindString, value: value}, nil
+		return &documentNode{kind: KindString, value: value}, nil
 	case json.Number:
-		return &syntaxValue{kind: KindNumber, value: value}, nil
+		return &documentNode{kind: KindNumber, value: value}, nil
 	case json.Delim:
 		switch value {
 		case '{':
-			object := &syntaxValue{kind: KindObject}
+			object := &documentNode{kind: KindObject}
 			seen := make(map[string]struct{})
 			for decoder.More() {
 				keyToken, keyErr := decoder.Token()
@@ -243,20 +245,20 @@ func readSyntaxValue(decoder *json.Decoder, path string, depth int, nodes *int) 
 					return nil, invalid(childPath, "duplicate key")
 				}
 				seen[key] = struct{}{}
-				child, childErr := readSyntaxValue(decoder, childPath, depth+1, nodes)
+				child, childErr := readDocumentNode(decoder, childPath, depth+1, nodes)
 				if childErr != nil {
 					return nil, childErr
 				}
-				object.fields = append(object.fields, syntaxField{name: key, value: child})
+				object.fields = append(object.fields, documentField{name: key, value: child})
 			}
 			if _, err := decoder.Token(); err != nil {
 				return nil, invalid(path, "object terminator: %v", err)
 			}
 			return object, nil
 		case '[':
-			array := &syntaxValue{kind: KindArray}
+			array := &documentNode{kind: KindArray}
 			for index := 0; decoder.More(); index++ {
-				child, childErr := readSyntaxValue(decoder, fmt.Sprintf("%s[%d]", path, index), depth+1, nodes)
+				child, childErr := readDocumentNode(decoder, fmt.Sprintf("%s[%d]", path, index), depth+1, nodes)
 				if childErr != nil {
 					return nil, childErr
 				}
@@ -274,7 +276,7 @@ func readSyntaxValue(decoder *json.Decoder, path string, depth int, nodes *int) 
 	}
 }
 
-func buildShape(value *syntaxValue, path string) (*Shape, error) {
+func buildShape(value *documentNode, path string) (*Shape, error) {
 	shape := &Shape{Kind: value.kind}
 	switch value.kind {
 	case KindNull:
@@ -321,14 +323,14 @@ func buildShape(value *syntaxValue, path string) (*Shape, error) {
 	}
 }
 
-func requireString(value *syntaxValue, path string) (string, error) {
+func requireString(value *documentNode, path string) (string, error) {
 	if value.kind != KindString {
 		return "", invalid(path, "must be a string")
 	}
 	return value.value.(string), nil
 }
 
-func requireInteger(value *syntaxValue, path string) (int, error) {
+func requireInteger(value *documentNode, path string) (int, error) {
 	if value.kind != KindNumber {
 		return 0, invalid(path, "must be an integer")
 	}

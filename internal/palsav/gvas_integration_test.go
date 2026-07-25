@@ -187,7 +187,7 @@ func walkDecodedValue(value any, rawValues map[string]int) error {
 				return err
 			}
 		}
-	case RawValue:
+	case UndecodedValue:
 		rawValues[value.Reason]++
 	}
 	return nil

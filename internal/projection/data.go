@@ -19,28 +19,32 @@ const (
 	maxDecodedDepth = 128
 )
 
-type dataNode struct {
+// sourceNode is one decoded save value normalized into the projection kind
+// system. It is the "what the save contains" tree; see Output. Unlike the
+// other two it carries a path, because diagnostics name where a match came
+// from.
+type sourceNode struct {
 	kind   Kind
-	fields []dataField
-	items  []*dataNode
+	fields []sourceField
+	items  []*sourceNode
 	value  any
 	path   string
 }
 
-type dataField struct {
+type sourceField struct {
 	name string
-	node *dataNode
+	node *sourceNode
 }
 
 type normalizer struct {
 	nodes int
 }
 
-func normalizeProperties(properties palsav.Properties) (*dataNode, error) {
+func normalizeSource(properties palsav.Properties) (*sourceNode, error) {
 	return (&normalizer{}).value(properties, "$", 0)
 }
 
-func (normalizer *normalizer) value(value any, path string, depth int) (*dataNode, error) {
+func (normalizer *normalizer) value(value any, path string, depth int) (*sourceNode, error) {
 	if depth > maxDecodedDepth {
 		return nil, fmt.Errorf("projection: decoded tree exceeds %d levels at %s", maxDecodedDepth, path)
 	}
@@ -50,9 +54,9 @@ func (normalizer *normalizer) value(value any, path string, depth int) (*dataNod
 
 	switch typed := value.(type) {
 	case nil:
-		return &dataNode{kind: KindNull, path: path}, nil
+		return &sourceNode{kind: KindNull, path: path}, nil
 	case palsav.Properties:
-		node := &dataNode{kind: KindObject, path: path}
+		node := &sourceNode{kind: KindObject, path: path}
 		for index := range typed {
 			property := &typed[index]
 			childPath := propertyPath(path, property.Name)
@@ -60,23 +64,23 @@ func (normalizer *normalizer) value(value any, path string, depth int) (*dataNod
 			if err != nil {
 				return nil, err
 			}
-			node.fields = append(node.fields, dataField{name: property.Name, node: child})
+			node.fields = append(node.fields, sourceField{name: property.Name, node: child})
 		}
 		return node, nil
 	case palsav.StructValue:
 		return normalizer.value(typed.Value, path, depth)
 	case palsav.EnumValue:
-		return &dataNode{kind: KindString, value: typed.Value, path: path}, nil
-	case palsav.RawValue:
+		return &sourceNode{kind: KindString, value: typed.Value, path: path}, nil
+	case palsav.UndecodedValue:
 		if err := normalizer.consumeNodes(3); err != nil {
 			return nil, err
 		}
-		return &dataNode{
+		return &sourceNode{
 			kind: KindObject,
-			fields: []dataField{
+			fields: []sourceField{
 				{
 					name: "raw",
-					node: &dataNode{
+					node: &sourceNode{
 						kind:  KindString,
 						value: base64.StdEncoding.EncodeToString(typed.Data),
 						path:  propertyPath(path, "raw"),
@@ -84,7 +88,7 @@ func (normalizer *normalizer) value(value any, path string, depth int) (*dataNod
 				},
 				{
 					name: "bytes",
-					node: &dataNode{
+					node: &sourceNode{
 						kind:  KindNumber,
 						value: len(typed.Data),
 						path:  propertyPath(path, "bytes"),
@@ -92,7 +96,7 @@ func (normalizer *normalizer) value(value any, path string, depth int) (*dataNod
 				},
 				{
 					name: "reason",
-					node: &dataNode{
+					node: &sourceNode{
 						kind:  KindString,
 						value: typed.Reason,
 						path:  propertyPath(path, "reason"),
@@ -103,9 +107,9 @@ func (normalizer *normalizer) value(value any, path string, depth int) (*dataNod
 		}, nil
 	case *palsav.MapValue:
 		if typed == nil {
-			return &dataNode{kind: KindNull, path: path}, nil
+			return &sourceNode{kind: KindNull, path: path}, nil
 		}
-		node := &dataNode{kind: KindArray, path: path}
+		node := &sourceNode{kind: KindArray, path: path}
 		iterator := typed.Iterator()
 		index := 0
 		for iterator.Next() {
@@ -122,9 +126,9 @@ func (normalizer *normalizer) value(value any, path string, depth int) (*dataNod
 			if err != nil {
 				return nil, err
 			}
-			node.items = append(node.items, &dataNode{
+			node.items = append(node.items, &sourceNode{
 				kind: KindObject,
-				fields: []dataField{
+				fields: []sourceField{
 					{name: "Key", node: key},
 					{name: "Value", node: mapValue},
 				},
@@ -138,9 +142,9 @@ func (normalizer *normalizer) value(value any, path string, depth int) (*dataNod
 		return node, nil
 	case *palsav.SetValue:
 		if typed == nil {
-			return &dataNode{kind: KindNull, path: path}, nil
+			return &sourceNode{kind: KindNull, path: path}, nil
 		}
-		node := &dataNode{kind: KindArray, path: path}
+		node := &sourceNode{kind: KindArray, path: path}
 		iterator := typed.Iterator()
 		index := 0
 		for iterator.Next() {
@@ -162,9 +166,9 @@ func (normalizer *normalizer) value(value any, path string, depth int) (*dataNod
 		return normalizer.reflectValue(reflect.ValueOf(typed.Values), path, depth)
 	case *palsav.StructArray:
 		if typed == nil {
-			return &dataNode{kind: KindNull, path: path}, nil
+			return &sourceNode{kind: KindNull, path: path}, nil
 		}
-		node := &dataNode{kind: KindArray, path: path}
+		node := &sourceNode{kind: KindArray, path: path}
 		iterator := typed.Iterator()
 		index := 0
 		for iterator.Next() {
@@ -180,11 +184,11 @@ func (normalizer *normalizer) value(value any, path string, depth int) (*dataNod
 		}
 		return node, nil
 	case palsav.GUID:
-		return &dataNode{kind: KindString, value: typed.String(), path: path}, nil
+		return &sourceNode{kind: KindString, value: typed.String(), path: path}, nil
 	case bool:
-		return &dataNode{kind: KindBoolean, value: typed, path: path}, nil
+		return &sourceNode{kind: KindBoolean, value: typed, path: path}, nil
 	case string:
-		return &dataNode{kind: KindString, value: typed, path: path}, nil
+		return &sourceNode{kind: KindString, value: typed, path: path}, nil
 	}
 
 	return normalizer.reflectValue(reflect.ValueOf(value), path, depth)
@@ -202,29 +206,29 @@ func (normalizer *normalizer) consumeNodes(count int) error {
 	return nil
 }
 
-func (normalizer *normalizer) reflectValue(value reflect.Value, path string, depth int) (*dataNode, error) {
+func (normalizer *normalizer) reflectValue(value reflect.Value, path string, depth int) (*sourceNode, error) {
 	if !value.IsValid() {
-		return &dataNode{kind: KindNull, path: path}, nil
+		return &sourceNode{kind: KindNull, path: path}, nil
 	}
 	if value.Kind() == reflect.Interface || value.Kind() == reflect.Pointer {
 		if value.IsNil() {
-			return &dataNode{kind: KindNull, path: path}, nil
+			return &sourceNode{kind: KindNull, path: path}, nil
 		}
 		return normalizer.value(value.Elem().Interface(), path, depth)
 	}
 	switch value.Kind() {
 	case reflect.Bool:
-		return &dataNode{kind: KindBoolean, value: value.Bool(), path: path}, nil
+		return &sourceNode{kind: KindBoolean, value: value.Bool(), path: path}, nil
 	case reflect.String:
-		return &dataNode{kind: KindString, value: value.String(), path: path}, nil
+		return &sourceNode{kind: KindString, value: value.String(), path: path}, nil
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return &dataNode{kind: KindNumber, value: value.Int(), path: path}, nil
+		return &sourceNode{kind: KindNumber, value: value.Int(), path: path}, nil
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return &dataNode{kind: KindNumber, value: value.Uint(), path: path}, nil
+		return &sourceNode{kind: KindNumber, value: value.Uint(), path: path}, nil
 	case reflect.Float32, reflect.Float64:
-		return &dataNode{kind: KindNumber, value: value.Interface(), path: path}, nil
+		return &sourceNode{kind: KindNumber, value: value.Interface(), path: path}, nil
 	case reflect.Slice, reflect.Array:
-		node := &dataNode{kind: KindArray, path: path}
+		node := &sourceNode{kind: KindArray, path: path}
 		for index := 0; index < value.Len(); index++ {
 			child, err := normalizer.value(value.Index(index).Interface(), indexedPath(path, index), depth+1)
 			if err != nil {
@@ -240,10 +244,10 @@ func (normalizer *normalizer) reflectValue(value reflect.Value, path string, dep
 				if err != nil {
 					return nil, err
 				}
-				return &dataNode{kind: KindString, value: string(text), path: path}, nil
+				return &sourceNode{kind: KindString, value: string(text), path: path}, nil
 			}
 		}
-		node := &dataNode{kind: KindObject, path: path}
+		node := &sourceNode{kind: KindObject, path: path}
 		valueType := value.Type()
 		for index := 0; index < value.NumField(); index++ {
 			fieldType := valueType.Field(index)
@@ -258,11 +262,11 @@ func (normalizer *normalizer) reflectValue(value reflect.Value, path string, dep
 			if err != nil {
 				return nil, err
 			}
-			node.fields = append(node.fields, dataField{name: name, node: child})
+			node.fields = append(node.fields, sourceField{name: name, node: child})
 		}
 		return node, nil
 	default:
-		return &dataNode{kind: kindUnsupported, value: fmt.Sprint(value.Interface()), path: path}, nil
+		return &sourceNode{kind: kindUnsupported, value: fmt.Sprint(value.Interface()), path: path}, nil
 	}
 }
 

@@ -12,8 +12,8 @@ import (
 	"github.com/LukeHollandDev/palworld-save-reader/internal/palsav"
 )
 
-// Options controls projection resolution.
-type Options struct {
+// ApplyOptions controls projection resolution.
+type ApplyOptions struct {
 	AllowPartial bool
 	Explain      bool
 }
@@ -109,7 +109,7 @@ func IsResolutionError(err error) bool {
 }
 
 type evaluation struct {
-	value      *Value
+	value      *Output
 	score      int
 	evidence   int
 	issues     []Diagnostic
@@ -117,20 +117,20 @@ type evaluation struct {
 }
 
 type candidate struct {
-	node       *dataNode
+	node       *sourceNode
 	evaluation evaluation
 }
 
 // Apply resolves document against one decoded save and returns ordered output.
-func Apply(properties palsav.Properties, document *Document, options Options) (*Value, []Diagnostic, error) {
+func Apply(properties palsav.Properties, document *Document, options ApplyOptions) (*Output, []Diagnostic, error) {
 	if document == nil || document.Shape == nil {
 		return nil, nil, invalid("$", "nil document or shape")
 	}
-	root, err := normalizeProperties(properties)
+	root, err := normalizeSource(properties)
 	if err != nil {
 		return nil, nil, err
 	}
-	var nodes []*dataNode
+	var nodes []*sourceNode
 	collectCandidates(root, document.Shape.Kind, &nodes)
 	if len(nodes) == 0 {
 		diagnostic := missingDiagnostic(
@@ -233,13 +233,13 @@ func Apply(properties palsav.Properties, document *Document, options Options) (*
 	return selected.evaluation.value, diagnostics, nil
 }
 
-func evaluate(shape *Shape, data *dataNode, outputPath string) evaluation {
+func evaluate(shape *Shape, data *sourceNode, outputPath string) evaluation {
 	if shape.Kind == KindNull {
 		if data.kind == kindUnsupported {
 			return typeIssue(shape, data, outputPath)
 		}
 		return evaluation{
-			value:    copyDataValue(data),
+			value:    copySourceNode(data),
 			score:    1,
 			evidence: 0,
 		}
@@ -250,7 +250,7 @@ func evaluate(shape *Shape, data *dataNode, outputPath string) evaluation {
 	switch shape.Kind {
 	case KindString, KindNumber, KindBoolean:
 		return evaluation{
-			value: &Value{kind: data.kind, scalar: data.value},
+			value: &Output{kind: data.kind, scalar: data.value},
 			score: 2,
 		}
 	case KindObject:
@@ -262,13 +262,13 @@ func evaluate(shape *Shape, data *dataNode, outputPath string) evaluation {
 	}
 }
 
-func evaluateObject(shape *Shape, data *dataNode, outputPath string) evaluation {
+func evaluateObject(shape *Shape, data *sourceNode, outputPath string) evaluation {
 	result := evaluation{
-		value: &Value{kind: KindObject, fields: make([]valueField, 0, len(shape.Fields))},
+		value: &Output{kind: KindObject, fields: make([]outputField, 0, len(shape.Fields))},
 	}
 	for _, requested := range shape.Fields {
 		childOutputPath := propertyPath(outputPath, requested.Name)
-		var matches []*dataNode
+		var matches []*sourceNode
 		for _, field := range data.fields {
 			if field.name == requested.Name {
 				matches = append(matches, field.node)
@@ -276,7 +276,7 @@ func evaluateObject(shape *Shape, data *dataNode, outputPath string) evaluation 
 		}
 		switch len(matches) {
 		case 0:
-			result.value.fields = append(result.value.fields, valueField{name: requested.Name, value: nullValue()})
+			result.value.fields = append(result.value.fields, outputField{name: requested.Name, value: nullOutput()})
 			result.issues = append(result.issues, missingDiagnostic(
 				childOutputPath,
 				data.path,
@@ -285,7 +285,7 @@ func evaluateObject(shape *Shape, data *dataNode, outputPath string) evaluation 
 		case 1:
 			result.evidence++
 			child := evaluate(requested.Shape, matches[0], childOutputPath)
-			result.value.fields = append(result.value.fields, valueField{name: requested.Name, value: child.value})
+			result.value.fields = append(result.value.fields, outputField{name: requested.Name, value: child.value})
 			result.score += 100 + child.score
 			result.evidence += child.evidence
 			result.issues = append(result.issues, child.issues...)
@@ -299,7 +299,7 @@ func evaluateObject(shape *Shape, data *dataNode, outputPath string) evaluation 
 			result.selections = append(result.selections, child.selections...)
 		default:
 			result.evidence++
-			result.value.fields = append(result.value.fields, valueField{name: requested.Name, value: nullValue()})
+			result.value.fields = append(result.value.fields, outputField{name: requested.Name, value: nullOutput()})
 			paths := make([]string, 0, len(matches))
 			for _, match := range matches {
 				paths = append(paths, match.path)
@@ -316,9 +316,9 @@ func evaluateObject(shape *Shape, data *dataNode, outputPath string) evaluation 
 	return result
 }
 
-func evaluateArray(shape *Shape, data *dataNode, outputPath string) evaluation {
+func evaluateArray(shape *Shape, data *sourceNode, outputPath string) evaluation {
 	result := evaluation{
-		value: &Value{kind: KindArray, items: make([]*Value, 0, len(data.items))},
+		value: &Output{kind: KindArray, items: make([]*Output, 0, len(data.items))},
 		score: 10,
 	}
 	minScore := -1
@@ -343,13 +343,13 @@ func evaluateArray(shape *Shape, data *dataNode, outputPath string) evaluation {
 	return result
 }
 
-func typeIssue(shape *Shape, data *dataNode, outputPath string) evaluation {
+func typeIssue(shape *Shape, data *sourceNode, outputPath string) evaluation {
 	actual := data.kind.String()
 	if data.kind == kindUnsupported {
 		actual = "unsupported"
 	}
 	return evaluation{
-		value: nullValue(),
+		value: nullOutput(),
 		issues: []Diagnostic{{
 			Severity:   SeverityError,
 			Kind:       DiagnosticIncompatible,
@@ -360,28 +360,28 @@ func typeIssue(shape *Shape, data *dataNode, outputPath string) evaluation {
 	}
 }
 
-func copyDataValue(data *dataNode) *Value {
+func copySourceNode(data *sourceNode) *Output {
 	switch data.kind {
 	case KindObject:
-		value := &Value{kind: KindObject, fields: make([]valueField, 0, len(data.fields))}
+		value := &Output{kind: KindObject, fields: make([]outputField, 0, len(data.fields))}
 		for _, field := range data.fields {
-			value.fields = append(value.fields, valueField{name: field.name, value: copyDataValue(field.node)})
+			value.fields = append(value.fields, outputField{name: field.name, value: copySourceNode(field.node)})
 		}
 		return value
 	case KindArray:
-		value := &Value{kind: KindArray, items: make([]*Value, 0, len(data.items))}
+		value := &Output{kind: KindArray, items: make([]*Output, 0, len(data.items))}
 		for _, item := range data.items {
-			value.items = append(value.items, copyDataValue(item))
+			value.items = append(value.items, copySourceNode(item))
 		}
 		return value
 	case kindUnsupported:
-		return nullValue()
+		return nullOutput()
 	default:
-		return &Value{kind: data.kind, scalar: data.value}
+		return &Output{kind: data.kind, scalar: data.value}
 	}
 }
 
-func collectCandidates(node *dataNode, kind Kind, output *[]*dataNode) {
+func collectCandidates(node *sourceNode, kind Kind, output *[]*sourceNode) {
 	if node.kind == kind {
 		*output = append(*output, node)
 	}

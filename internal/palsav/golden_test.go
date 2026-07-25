@@ -129,7 +129,7 @@ func materialise(value any) any {
 		}
 	case EnumValue:
 		return map[string]any{"kind": "enum", "enumType": typed.Type, "value": typed.Value}
-	case RawValue:
+	case UndecodedValue:
 		return map[string]any{
 			"kind":   "raw",
 			"data":   base64.StdEncoding.EncodeToString(typed.Data),
@@ -454,7 +454,7 @@ func goldenCollections(p *testArchive) {
 }
 
 func goldenFallbacks(p *testArchive) {
-	// A short payload leaves the tag intact but forces the RawValue fallback.
+	// A short payload leaves the tag intact but forces the UndecodedValue fallback.
 	p.property("TruncatedInt", "IntProperty", []byte{1, 2}, 0, nil, nil)
 	// Trailing payload bytes are also a decode failure, not silent truncation.
 	p.property("OverlongInt", "IntProperty", []byte{1, 2, 3, 4, 5}, 0, nil, nil)
