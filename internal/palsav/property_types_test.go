@@ -5,9 +5,11 @@ package palsav
 
 import (
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -19,9 +21,9 @@ import (
 //
 // propertyTypes is the single authoritative list. TestPropertyTypeSwitches
 // checks each switch against it, and TestEveryPropertyTypeIsClassified fails
-// if properties.go mentions a type string this table does not, which is what
-// catches the drift a lookup table would not have caught either: a map miss
-// is still a runtime failure, not a compile error.
+// if any package file mentions a type string this table does not, which is
+// what catches the drift a lookup table would not have caught either: a map
+// miss is still a runtime failure, not a compile error.
 var propertyTypes = []propertyTypeCase{
 	// Plain scalar tags, decodable everywhere.
 	{name: "Int8Property", plainTag: true, minimum: 1, arrayable: true,
@@ -55,13 +57,13 @@ var propertyTypes = []propertyTypeCase{
 
 	// Tags the reader recognises but deliberately does not decode. These
 	// always fall back to UndecodedValue, which preserves the exact bytes.
-	{name: "TextProperty", plainTag: true, minimum: 1, taggedRaw: true},
-	{name: "SoftObjectProperty", plainTag: true, minimum: 1, taggedRaw: true},
-	{name: "WeakObjectProperty", plainTag: true, minimum: 1, taggedRaw: true},
-	{name: "LazyObjectProperty", plainTag: true, minimum: 1, taggedRaw: true},
-	{name: "InterfaceProperty", plainTag: true, minimum: 1, taggedRaw: true},
-	{name: "DelegateProperty", plainTag: true, minimum: 1, taggedRaw: true},
-	{name: "MulticastDelegateProperty", plainTag: true, minimum: 1, taggedRaw: true},
+	{name: "TextProperty", plainTag: true, minimum: 1, taggedUndecoded: true},
+	{name: "SoftObjectProperty", plainTag: true, minimum: 1, taggedUndecoded: true},
+	{name: "WeakObjectProperty", plainTag: true, minimum: 1, taggedUndecoded: true},
+	{name: "LazyObjectProperty", plainTag: true, minimum: 1, taggedUndecoded: true},
+	{name: "InterfaceProperty", plainTag: true, minimum: 1, taggedUndecoded: true},
+	{name: "DelegateProperty", plainTag: true, minimum: 1, taggedUndecoded: true},
+	{name: "MulticastDelegateProperty", plainTag: true, minimum: 1, taggedUndecoded: true},
 
 	// Tags carrying extra metadata, so not "plain", but still bare-decodable.
 	{name: "BoolProperty", minimum: 1, arrayable: true,
@@ -103,8 +105,8 @@ type propertyTypeCase struct {
 	want any
 	// arrayable records whether readTypedArray handles the type.
 	arrayable bool
-	// taggedRaw marks a tag the reader accepts but does not decode.
-	taggedRaw bool
+	// taggedUndecoded marks a tag the reader accepts but does not decode.
+	taggedUndecoded bool
 }
 
 func TestPropertyTypeSwitches(t *testing.T) {
@@ -189,21 +191,43 @@ func TestTaggedPayloadDecodability(t *testing.T) {
 				t.Fatal("property missing")
 			}
 			_, raw := property.Value.(UndecodedValue)
-			if raw != testCase.taggedRaw {
-				t.Errorf("UndecodedValue fallback = %v, want %v (value %#v)", raw, testCase.taggedRaw, property.Value)
+			if raw != testCase.taggedUndecoded {
+				t.Errorf("UndecodedValue fallback = %v, want %v (value %#v)", raw, testCase.taggedUndecoded, property.Value)
 			}
 		})
 	}
 }
 
-// TestEveryPropertyTypeIsClassified fails when properties.go mentions a type
-// string that propertyTypes does not describe. Without it, adding a case to
-// one switch and forgetting the others stays invisible until a save fails.
+// TestEveryPropertyTypeIsClassified fails when any file in the package
+// mentions a type string that propertyTypes does not describe. Without it,
+// adding a case to one switch and forgetting the others stays invisible until
+// a save fails.
+//
+// It scans every non-test file rather than a named one, so moving a switch to
+// another file cannot silently disable the check.
 func TestEveryPropertyTypeIsClassified(t *testing.T) {
-	source, err := os.ReadFile("properties.go")
+	entries, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
+	var source []byte
+	var scanned []string
+	for _, entry := range entries {
+		if strings.HasSuffix(entry, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		source = append(source, data...)
+		scanned = append(scanned, entry)
+	}
+	if len(scanned) == 0 {
+		t.Fatal("no package files scanned")
+	}
+	t.Logf("scanned %d files: %v", len(scanned), scanned)
+
 	classified := make(map[string]bool, len(propertyTypes))
 	for _, testCase := range propertyTypes {
 		classified[testCase.name] = true
@@ -223,7 +247,7 @@ func TestEveryPropertyTypeIsClassified(t *testing.T) {
 	}
 	if len(missing) != 0 {
 		sort.Strings(missing)
-		t.Errorf("properties.go handles type(s) %v with no entry in propertyTypes; "+
+		t.Errorf("package handles type(s) %v with no entry in propertyTypes; "+
 			"add them there so every switch is checked", missing)
 	}
 }
