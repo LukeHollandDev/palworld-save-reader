@@ -318,7 +318,23 @@ func (archive *testArchive) u32(value uint32) {
 	archive.data = append(archive.data, raw[:]...)
 }
 
+func (archive *testArchive) u64(value uint64) {
+	var raw [8]byte
+	binary.LittleEndian.PutUint64(raw[:], value)
+	archive.data = append(archive.data, raw[:]...)
+}
+
+func (archive *testArchive) i8(value int8)   { archive.u8(uint8(value)) }
+func (archive *testArchive) i16(value int16) { archive.u16(uint16(value)) }
 func (archive *testArchive) i32(value int32) { archive.u32(uint32(value)) }
+func (archive *testArchive) i64(value int64) { archive.u64(uint64(value)) }
+
+func (archive *testArchive) f32(value float32) { archive.u32(math.Float32bits(value)) }
+func (archive *testArchive) f64(value float64) { archive.u64(math.Float64bits(value)) }
+
+func (archive *testArchive) raw(value []byte) {
+	archive.data = append(archive.data, value...)
+}
 
 func (archive *testArchive) fstring(value string) {
 	archive.data = append(archive.data, testFStringBytes(value)...)
