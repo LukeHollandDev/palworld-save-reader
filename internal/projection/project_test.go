@@ -50,7 +50,7 @@ func TestApplyNestedRepeatedProjection(t *testing.T) {
 	if got != want {
 		t.Fatalf("output = %s\nwant   = %s", got, want)
 	}
-	if !hasDiagnostic(diagnostics, "root") || !hasDiagnostic(diagnostics, "selected") {
+	if !hasDiagnostic(diagnostics, DiagnosticRoot) || !hasDiagnostic(diagnostics, DiagnosticSelected) {
 		t.Fatalf("diagnostics = %#v", diagnostics)
 	}
 }
@@ -69,7 +69,7 @@ func TestApplyStrictAndPartialMissingFields(t *testing.T) {
 	}`)
 	if _, diagnostics, err := Apply(properties, document, Options{}); err == nil {
 		t.Fatal("strict Apply succeeded with a missing field")
-	} else if !hasDiagnostic(diagnostics, "missing") {
+	} else if !hasDiagnostic(diagnostics, DiagnosticMissing) {
 		t.Fatalf("diagnostics = %#v", diagnostics)
 	}
 
@@ -80,7 +80,7 @@ func TestApplyStrictAndPartialMissingFields(t *testing.T) {
 	if got, want := compactJSON(t, output), `{"NickName":"Ada","Level":42,"Missing":null}`; got != want {
 		t.Fatalf("output = %s, want %s", got, want)
 	}
-	if !hasDiagnostic(diagnostics, "missing") {
+	if !hasDiagnostic(diagnostics, DiagnosticMissing) {
 		t.Fatalf("diagnostics = %#v", diagnostics)
 	}
 }
@@ -95,7 +95,7 @@ func TestApplyRejectsTypeMismatch(t *testing.T) {
 		"shape": {"Level": 0}
 	}`)
 	_, diagnostics, err := Apply(properties, document, Options{})
-	if err == nil || !hasDiagnostic(diagnostics, "incompatible") {
+	if err == nil || !hasDiagnostic(diagnostics, DiagnosticIncompatible) {
 		t.Fatalf("err = %v, diagnostics = %#v", err, diagnostics)
 	}
 }
@@ -113,7 +113,7 @@ func TestApplyRejectsAmbiguousCandidates(t *testing.T) {
 		"shape": {"NickName": ""}
 	}`)
 	_, diagnostics, err := Apply(properties, document, Options{})
-	if err == nil || !hasDiagnostic(diagnostics, "ambiguous") {
+	if err == nil || !hasDiagnostic(diagnostics, DiagnosticAmbiguous) {
 		t.Fatalf("err = %v, diagnostics = %#v", err, diagnostics)
 	}
 	if !strings.Contains(err.Error(), "ambiguous") {
@@ -160,7 +160,7 @@ func compactJSON(t *testing.T, value *Value) string {
 	return string(data)
 }
 
-func hasDiagnostic(diagnostics []Diagnostic, kind string) bool {
+func hasDiagnostic(diagnostics []Diagnostic, kind DiagnosticKind) bool {
 	for _, diagnostic := range diagnostics {
 		if diagnostic.Kind == kind {
 			return true

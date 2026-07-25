@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/LukeHollandDev/palworld-save-reader/internal/palsav/oodle"
 )
@@ -90,11 +91,11 @@ func DecodeContainerWithLimits(data []byte, limits Limits) ([]byte, ContainerHea
 			Limit: uint64(limits.MaxOutputBytes),
 		}
 	}
-	if uint64(header.RawSize) > uint64(maxInt()) {
+	if uint64(header.RawSize) > uint64(math.MaxInt) {
 		return nil, header, &LimitError{
 			Kind:  "declared output bytes for this platform",
 			Value: uint64(header.RawSize),
-			Limit: uint64(maxInt()),
+			Limit: uint64(math.MaxInt),
 		}
 	}
 	bodyAt := header.Offset + 12
@@ -123,8 +124,8 @@ func DecodeContainerWithLimits(data []byte, limits Limits) ([]byte, ContainerHea
 			raw, err = inflateExact(body, int64(header.RawSize))
 		case 0x32:
 			intermediateLimit := uint64(limits.MaxOutputBytes)
-			if uint64(maxInt()) < intermediateLimit {
-				intermediateLimit = uint64(maxInt())
+			if uint64(math.MaxInt) < intermediateLimit {
+				intermediateLimit = uint64(math.MaxInt)
 			}
 			if uint64(header.CompressedSize) > intermediateLimit {
 				return nil, header, &LimitError{
@@ -215,5 +216,3 @@ func inflateExact(src []byte, expected int64) ([]byte, error) {
 	}
 	return out, nil
 }
-
-func maxInt() int { return int(^uint(0) >> 1) }

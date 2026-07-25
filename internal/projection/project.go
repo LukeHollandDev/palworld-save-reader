@@ -6,6 +6,7 @@ package projection
 import (
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/LukeHollandDev/palworld-save-reader/internal/palsav"
@@ -17,15 +18,73 @@ type Options struct {
 	Explain      bool
 }
 
+// Severity ranks a Diagnostic for a consumer deciding whether to fail.
+type Severity string
+
+const (
+	SeverityError   Severity = "error"
+	SeverityWarning Severity = "warning"
+	SeverityInfo    Severity = "info"
+)
+
+// DiagnosticKind names what a Diagnostic reports. The set is closed, so a
+// consumer can switch on it exhaustively. It is spelled DiagnosticKind rather
+// than Kind because Kind already names the shape kinds.
+type DiagnosticKind string
+
+const (
+	// DiagnosticMissing reports a requested field with no match.
+	DiagnosticMissing DiagnosticKind = "missing"
+	// DiagnosticAmbiguous reports more than one equally good match.
+	DiagnosticAmbiguous DiagnosticKind = "ambiguous"
+	// DiagnosticIncompatible reports a match whose kind differs from the shape.
+	DiagnosticIncompatible DiagnosticKind = "incompatible"
+	// DiagnosticSelected records a match that was taken.
+	DiagnosticSelected DiagnosticKind = "selected"
+	// DiagnosticRejected records a candidate that lost to the selected one.
+	DiagnosticRejected DiagnosticKind = "rejected"
+	// DiagnosticRoot records which candidate became the projection root.
+	DiagnosticRoot DiagnosticKind = "root"
+)
+
 // Diagnostic is one machine-readable matching decision or problem.
 type Diagnostic struct {
-	Severity   string   `json:"severity"`
-	Kind       string   `json:"kind"`
-	OutputPath string   `json:"outputPath,omitempty"`
-	SourcePath string   `json:"sourcePath,omitempty"`
-	Message    string   `json:"message"`
-	Candidates []string `json:"candidates,omitempty"`
-	Score      int      `json:"score,omitempty"`
+	Severity   Severity       `json:"severity"`
+	Kind       DiagnosticKind `json:"kind"`
+	OutputPath string         `json:"outputPath,omitempty"`
+	SourcePath string         `json:"sourcePath,omitempty"`
+	Message    string         `json:"message"`
+	Candidates []string       `json:"candidates,omitempty"`
+	Score      int            `json:"score,omitempty"`
+}
+
+// missingDiagnostic and ambiguousDiagnostic cover the two kinds raised from
+// more than one place. The remaining kinds are built inline at their single
+// call site.
+func missingDiagnostic(outputPath, sourcePath, message string) Diagnostic {
+	return Diagnostic{
+		Severity:   SeverityError,
+		Kind:       DiagnosticMissing,
+		OutputPath: outputPath,
+		SourcePath: sourcePath,
+		Message:    message,
+	}
+}
+
+func ambiguousDiagnostic(
+	outputPath, sourcePath, message string,
+	candidates []string,
+	score int,
+) Diagnostic {
+	return Diagnostic{
+		Severity:   SeverityError,
+		Kind:       DiagnosticAmbiguous,
+		OutputPath: outputPath,
+		SourcePath: sourcePath,
+		Message:    message,
+		Candidates: candidates,
+		Score:      score,
+	}
 }
 
 // ResolutionError reports that no unique, complete projection could be
@@ -74,12 +133,10 @@ func Apply(properties palsav.Properties, document *Document, options Options) (*
 	var nodes []*dataNode
 	collectCandidates(root, document.Shape.Kind, &nodes)
 	if len(nodes) == 0 {
-		diagnostic := Diagnostic{
-			Severity:   "error",
-			Kind:       "missing",
-			OutputPath: "$",
-			Message:    "no decoded value has the requested top-level kind " + document.Shape.Kind.String(),
-		}
+		diagnostic := missingDiagnostic(
+			"$", "",
+			"no decoded value has the requested top-level kind "+document.Shape.Kind.String(),
+		)
 		return nil, []Diagnostic{diagnostic}, &ResolutionError{
 			Kind: "unresolved", Path: "$", Message: diagnostic.Message,
 		}
@@ -94,12 +151,7 @@ func Apply(properties palsav.Properties, document *Document, options Options) (*
 		candidates = append(candidates, candidate{node: node, evaluation: result})
 	}
 	if len(candidates) == 0 {
-		diagnostic := Diagnostic{
-			Severity:   "error",
-			Kind:       "missing",
-			OutputPath: "$",
-			Message:    "no candidate contains an exact requested field name",
-		}
+		diagnostic := missingDiagnostic("$", "", "no candidate contains an exact requested field name")
 		return nil, []Diagnostic{diagnostic}, &ResolutionError{
 			Kind: "unresolved", Path: "$", Message: diagnostic.Message,
 		}
@@ -120,14 +172,12 @@ func Apply(properties palsav.Properties, document *Document, options Options) (*
 				paths = append(paths, item.node.path)
 			}
 			sort.Strings(paths)
-			diagnostics = append(diagnostics, Diagnostic{
-				Severity:   "error",
-				Kind:       "ambiguous",
-				OutputPath: "$",
-				Message:    "multiple incomplete candidates have the same highest compatibility score",
-				Candidates: paths,
-				Score:      best[0].evaluation.score,
-			})
+			diagnostics = append(diagnostics, ambiguousDiagnostic(
+				"$", "",
+				"multiple incomplete candidates have the same highest compatibility score",
+				paths,
+				best[0].evaluation.score,
+			))
 		}
 		if options.Explain {
 			diagnostics = append(diagnostics, candidateDiagnostics(candidates, best[0].node.path)...)
@@ -150,14 +200,12 @@ func Apply(properties palsav.Properties, document *Document, options Options) (*
 			paths = append(paths, item.node.path)
 		}
 		sort.Strings(paths)
-		diagnostic := Diagnostic{
-			Severity:   "error",
-			Kind:       "ambiguous",
-			OutputPath: "$",
-			Message:    "multiple candidates have the same highest compatibility score",
-			Candidates: paths,
-			Score:      best[0].evaluation.score,
-		}
+		diagnostic := ambiguousDiagnostic(
+			"$", "",
+			"multiple candidates have the same highest compatibility score",
+			paths,
+			best[0].evaluation.score,
+		)
 		return nil, []Diagnostic{diagnostic}, &ResolutionError{
 			Kind: "ambiguous", Path: "$", Message: diagnostic.Message,
 		}
@@ -167,13 +215,13 @@ func Apply(properties palsav.Properties, document *Document, options Options) (*
 	diagnostics := append([]Diagnostic(nil), selected.evaluation.issues...)
 	if options.AllowPartial {
 		for index := range diagnostics {
-			diagnostics[index].Severity = "warning"
+			diagnostics[index].Severity = SeverityWarning
 		}
 	}
 	if options.Explain {
 		diagnostics = append(diagnostics, Diagnostic{
-			Severity:   "info",
-			Kind:       "root",
+			Severity:   SeverityInfo,
+			Kind:       DiagnosticRoot,
 			OutputPath: "$",
 			SourcePath: selected.node.path,
 			Message:    "selected unique highest-scoring candidate",
@@ -229,13 +277,11 @@ func evaluateObject(shape *Shape, data *dataNode, outputPath string) evaluation 
 		switch len(matches) {
 		case 0:
 			result.value.fields = append(result.value.fields, valueField{name: requested.Name, value: nullValue()})
-			result.issues = append(result.issues, Diagnostic{
-				Severity:   "error",
-				Kind:       "missing",
-				OutputPath: childOutputPath,
-				SourcePath: data.path,
-				Message:    fmt.Sprintf("field %q is not present", requested.Name),
-			})
+			result.issues = append(result.issues, missingDiagnostic(
+				childOutputPath,
+				data.path,
+				fmt.Sprintf("field %q is not present", requested.Name),
+			))
 		case 1:
 			result.evidence++
 			child := evaluate(requested.Shape, matches[0], childOutputPath)
@@ -244,8 +290,8 @@ func evaluateObject(shape *Shape, data *dataNode, outputPath string) evaluation 
 			result.evidence += child.evidence
 			result.issues = append(result.issues, child.issues...)
 			result.selections = append(result.selections, Diagnostic{
-				Severity:   "info",
-				Kind:       "selected",
+				Severity:   SeverityInfo,
+				Kind:       DiagnosticSelected,
 				OutputPath: childOutputPath,
 				SourcePath: matches[0].path,
 				Message:    "matched exact serialized field name",
@@ -258,14 +304,13 @@ func evaluateObject(shape *Shape, data *dataNode, outputPath string) evaluation 
 			for _, match := range matches {
 				paths = append(paths, match.path)
 			}
-			result.issues = append(result.issues, Diagnostic{
-				Severity:   "error",
-				Kind:       "ambiguous",
-				OutputPath: childOutputPath,
-				SourcePath: data.path,
-				Message:    fmt.Sprintf("field %q occurs more than once in the candidate object", requested.Name),
-				Candidates: paths,
-			})
+			result.issues = append(result.issues, ambiguousDiagnostic(
+				childOutputPath,
+				data.path,
+				fmt.Sprintf("field %q occurs more than once in the candidate object", requested.Name),
+				paths,
+				0,
+			))
 		}
 	}
 	return result
@@ -306,8 +351,8 @@ func typeIssue(shape *Shape, data *dataNode, outputPath string) evaluation {
 	return evaluation{
 		value: nullValue(),
 		issues: []Diagnostic{{
-			Severity:   "error",
-			Kind:       "incompatible",
+			Severity:   SeverityError,
+			Kind:       DiagnosticIncompatible,
 			OutputPath: outputPath,
 			SourcePath: data.path,
 			Message:    fmt.Sprintf("requested %s but decoded value is %s", shape.Kind.String(), actual),
@@ -350,7 +395,7 @@ func collectCandidates(node *dataNode, kind Kind, output *[]*dataNode) {
 
 func bestCandidates(candidates []candidate) []candidate {
 	bestScore := -1
-	bestIssues := int(^uint(0) >> 1)
+	bestIssues := math.MaxInt
 	var best []candidate
 	for _, item := range candidates {
 		issueCount := len(item.evaluation.issues)
@@ -373,8 +418,8 @@ func candidateDiagnostics(candidates []candidate, selectedPath string) []Diagnos
 			continue
 		}
 		diagnostics = append(diagnostics, Diagnostic{
-			Severity:   "info",
-			Kind:       "rejected",
+			Severity:   SeverityInfo,
+			Kind:       DiagnosticRejected,
 			SourcePath: item.node.path,
 			Message: fmt.Sprintf(
 				"candidate scored lower or had more problems (%d issue(s))",

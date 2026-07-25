@@ -275,11 +275,11 @@ func validateCount(cfg *decodeConfig, kind string, count uint32, remaining, mini
 			Limit: uint64(cfg.maxCollectionElements),
 		}
 	}
-	if uint64(count) > uint64(maxInt()) {
+	if uint64(count) > uint64(math.MaxInt) {
 		return &LimitError{
 			Kind:  kind + " count for this platform",
 			Value: uint64(count),
-			Limit: uint64(maxInt()),
+			Limit: uint64(math.MaxInt),
 		}
 	}
 	if minimum < 1 {
