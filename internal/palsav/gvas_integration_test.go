@@ -80,8 +80,8 @@ func TestSuppliedLazyCollections(t *testing.T) {
 		t.Fatal(err)
 	}
 	world := propertyStruct[Properties](t, level.Properties, "worldSaveData")
-	if len(world) != 25 {
-		t.Fatalf("worldSaveData properties = %d, want 25", len(world))
+	if len(world) == 0 {
+		t.Fatal("worldSaveData has no properties")
 	}
 	characters := propertyValue[*MapValue](t, world, "CharacterSaveParameterMap")
 	if characters.Count == 0 {

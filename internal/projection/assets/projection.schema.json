@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/LukeHollandDev/palworld-save-reader/raw/main/internal/projection/assets/projection.schema.json",
+  "title": "palworld-save-reader projection",
+  "description": "Describes the exact JSON shape to extract from one decoded Palworld save.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "projectionVersion",
+    "name",
+    "gameVersion",
+    "saveType",
+    "shape"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "projectionVersion": {
+      "const": 1
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "gameVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "saveType": {
+      "type": "string",
+      "minLength": 1
+    },
+    "shape": {
+      "$ref": "#/$defs/container"
+    }
+  },
+  "$defs": {
+    "container": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/object"
+        },
+        {
+          "$ref": "#/$defs/array"
+        }
+      ]
+    },
+    "shape": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/object"
+        },
+        {
+          "$ref": "#/$defs/array"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "const": ""
+        },
+        {
+          "const": 0
+        },
+        {
+          "const": false
+        }
+      ]
+    },
+    "object": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/shape"
+      }
+    },
+    "array": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "$ref": "#/$defs/shape"
+      }
+    }
+  }
+}

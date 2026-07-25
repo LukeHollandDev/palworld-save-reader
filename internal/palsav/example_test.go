@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/LukeHollandDev/palworld-save-reader/palsav"
+	"github.com/LukeHollandDev/palworld-save-reader/internal/palsav"
 )
 
 func ExampleLoad() {

@@ -1,4 +1,5 @@
 /savedecode
+/bin/
 *.sav
 *.sav.json
 /dist/
