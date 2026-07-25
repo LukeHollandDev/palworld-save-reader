@@ -5,10 +5,7 @@
 
 package palsav
 
-import (
-	"fmt"
-	"strings"
-)
+import "fmt"
 
 const (
 	defaultMaxStringBytes        = 16 << 20
@@ -159,16 +156,6 @@ type Properties []Property
 func (p Properties) Find(name string) *Property {
 	for i := range p {
 		if p[i].Name == name {
-			return &p[i]
-		}
-	}
-	return nil
-}
-
-// FindFold is Find with ASCII/Unicode case-insensitive matching.
-func (p Properties) FindFold(name string) *Property {
-	for i := range p {
-		if strings.EqualFold(p[i].Name, name) {
 			return &p[i]
 		}
 	}
