@@ -308,30 +308,72 @@ func (e *expander) byteArray(array gvas.ArrayValue, path string) any {
 	if !ok {
 		return node
 	}
+	var (
+		decoded any
+		err     error
+	)
 	switch palworld.ClassifyRawData(path) {
 	case palworld.RawDataItemSlot:
-		slot, err := palworld.DecodeItemSlot(data)
-		if err != nil {
-			node["decodeError"] = err.Error()
-			return node
-		}
-		decoded := map[string]any{
-			"kind":      palworld.RawDataItemSlot.String(),
-			"slotIndex": slot.SlotIndex,
-			"count":     slot.Count,
-			"itemId":    slot.ItemID,
-		}
-		if !slot.DynamicItemID.IsZero() {
-			decoded["dynamicItemId"] = slot.DynamicItemID.String()
-		}
-		// Only report a trailer that carries something. Reporting 52 zero bytes
-		// on every slot would triple the output for no information.
-		if trailer := trimZero(slot.Trailer); len(trailer) != 0 {
-			decoded["trailer"] = base64.StdEncoding.EncodeToString(slot.Trailer)
-		}
-		node["decoded"] = decoded
+		decoded, err = itemSlotNode(data)
+	case palworld.RawDataCharacter:
+		decoded, err = e.characterNode(data, path)
+	default:
+		return node
 	}
+	if err != nil {
+		node["decodeError"] = err.Error()
+		return node
+	}
+	node["decoded"] = decoded
 	return node
+}
+
+func itemSlotNode(data []byte) (any, error) {
+	slot, err := palworld.DecodeItemSlot(data)
+	if err != nil {
+		return nil, err
+	}
+	decoded := map[string]any{
+		"kind":      palworld.RawDataItemSlot.String(),
+		"slotIndex": slot.SlotIndex,
+		"count":     slot.Count,
+		"itemId":    slot.ItemID,
+	}
+	if !slot.DynamicItemID.IsZero() {
+		decoded["dynamicItemId"] = slot.DynamicItemID.String()
+	}
+	// Only report a trailer that carries something. Reporting 52 zero bytes
+	// on every slot would triple the output for no information.
+	if trailer := trimZero(slot.Trailer); len(trailer) != 0 {
+		decoded["trailer"] = base64.StdEncoding.EncodeToString(slot.Trailer)
+	}
+	return decoded, nil
+}
+
+// characterNode renders a nested character stream: the same property list every
+// other part of the dump uses, plus the group id the blob's framing carries.
+//
+// The nested properties are expanded at the blob's own path, which is what gvas
+// used to resolve type hints inside it. Keeping the two the same means a RawData
+// nested deeper still would be classified by where it actually sits.
+func (e *expander) characterNode(data []byte, path string) (any, error) {
+	character, err := palworld.DecodeCharacter(data)
+	if err != nil {
+		return nil, err
+	}
+	decoded := map[string]any{
+		"kind":       palworld.RawDataCharacter.String(),
+		"properties": e.properties(character.Properties, path),
+	}
+	if !character.GroupID.IsZero() {
+		decoded["groupId"] = character.GroupID.String()
+	}
+	// The framing is eight zero bytes around the group id in every fixture
+	// blob, so report it only when it is carrying something else.
+	if character.PaddingBeyondGroupID() {
+		decoded["trailer"] = base64.StdEncoding.EncodeToString(character.Trailer)
+	}
+	return decoded, nil
 }
 
 // trimZero returns input with trailing zero bytes removed.

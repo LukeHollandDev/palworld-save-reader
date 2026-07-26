@@ -16,6 +16,7 @@ The decoder is implemented in pure Go and does not require cgo, proprietary Oodl
 - Rejects missing, incompatible, or ambiguous matches by default
 - Produces a complete expanded property tree for format inspection
 - Decodes item-container `RawData` slots to item identifiers and stack counts
+- Decodes character `RawData` records to readable player and pal detail
 - Applies bounded input, collection, parser, and projection limits
 - Never writes to or modifies a source save
 - Builds for Linux, macOS, and Windows
@@ -165,11 +166,43 @@ A recognised blob gains a `decoded` object beside the base64, which is kept so n
 }
 ```
 
-One layout is decoded so far, the item-container slot at `worldSaveData.ItemContainerSaveData`. Together with `player-containers` it makes a player's inventory readable: that preset returns the container identifiers, and those identifiers key the containers whose slots now carry item names and stack counts.
-
 `dynamicItemId` appears only when the item has a per-instance record in `worldSaveData.DynamicItemSaveData`, which is where durability and similar state lives. A `trailer` field appears when a slot carries bytes that are not decoded yet. A blob that fails to decode reports `decodeError` next to its base64 rather than failing the dump.
 
-The flag is opt-in because it is not free: on a 3.3MB world save it adds about 4% to the JSON and 0.3s. It only applies to `--full`; pairing it with a projection mode is a usage error rather than a silently ignored flag. Every other `RawData` blob — character detail, guilds, base camps, map objects — is still base64.
+Two layouts are decoded. The first is the item-container slot above, at `worldSaveData.ItemContainerSaveData`. Together with `player-containers` it makes a player's inventory readable: that preset returns the container identifiers, and those identifiers key the containers whose slots now carry item names and stack counts.
+
+The second is the character record at `worldSaveData.CharacterSaveParameterMap`, which holds one player or one pal. It is not a bespoke record but a complete Unreal property stream written without a header, so it comes out as the same property list the rest of the dump uses:
+
+```json
+{
+  "innerType": "ByteProperty",
+  "values": "DgAAAFNhdmVQYXJhbWV0ZXIADwAAAFN0cnVjdFByb3BlcnR5…",
+  "decoded": {
+    "kind": "character",
+    "groupId": "7bf717b9-4a4b-4838-b10a-0a54e4cc168f",
+    "properties": [
+      {
+        "name": "SaveParameter",
+        "type": "StructProperty",
+        "value": {
+          "structType": "PalIndividualCharacterSaveParameter",
+          "value": [
+            { "name": "Level", "type": "ByteProperty", "enumType": "None", "value": 46 },
+            { "name": "Exp", "type": "Int64Property", "value": 1641238 },
+            { "name": "NickName", "type": "StrProperty", "value": "…" },
+            { "name": "IsPlayer", "type": "BoolProperty", "value": true }
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+
+A pal's record carries `CharacterID` naming its species instead of `IsPlayer`, along with its level, IVs, passive skills, and any nickname given to it.
+
+This is where a player's name lives, and it is the only place: nothing in a `player.sav` holds it, so no preset can reach it. `groupId` keys `worldSaveData.GroupSaveDataMap`, the guild the character belongs to. Against fixtures from `1.0.1.100619`, all 2,259 records decoded, all eight distinct group ids resolved to a group, and the nine records flagged as players matched the nine save files under `Players/` one for one.
+
+The flag is opt-in because it is not free: on a 3.3MB world save it adds about 21% to the JSON and half a second. It only applies to `--full`; pairing it with a projection mode is a usage error rather than a silently ignored flag. Every other `RawData` blob — guilds, base camps, map objects, pal-storage slots — is still base64.
 
 ### Use bundled presets
 
@@ -198,11 +231,11 @@ All bundled presets were verified against private fixtures from Palworld `1.0.1.
 | `player-appearance` | `player.sav` | Body, head, and hair meshes, character colours, voice |
 | `world-meta` | `LevelMeta.sav` | World name, in-game day, save timestamp and version |
 
-`player-identity` is the one that exposes `IndividualId.InstanceId`, the key that identifies a player's character inside a world save.
+`player-identity` is the one that exposes `IndividualId.InstanceId`, the key that identifies a player's character inside a world save. No preset returns a player's name, because a `player.sav` does not contain one — every string in it is an identifier, an enum, or an asset name. The name is in the world save, reachable with [`--full --decode-raw`](#decode-rawdata-byte-arrays).
 
 `player-progression` reports quests a player has finished; `player-quests` reports the ones still open, which is a separate array carrying per-objective counters.
 
-A preset reads one file, so joining a player to the world is the caller's job. The identifiers each preset returns are the keys for it: against fixtures from `1.0.1.100619`, `IndividualId.InstanceId` matched a `CharacterSaveParameterMap` key, the six `InventoryInfo` container identifiers matched `ItemContainerSaveData` keys, and `PalStorageContainerId` and `OtomoCharacterContainerId` matched `CharacterContainerSaveData` keys — each exactly once. A player save's filename is its `PlayerUId` with the dashes removed. What sits on the far side of those joins is mostly `RawData`, so the join currently locates a record rather than opening it.
+A preset reads one file, so joining a player to the world is the caller's job. The identifiers each preset returns are the keys for it: against fixtures from `1.0.1.100619`, `IndividualId.InstanceId` matched a `CharacterSaveParameterMap` key, the six `InventoryInfo` container identifiers matched `ItemContainerSaveData` keys, and `PalStorageContainerId` and `OtomoCharacterContainerId` matched `CharacterContainerSaveData` keys — each exactly once. A player save's filename is its `PlayerUId` with the dashes removed. `--full --decode-raw` opens the first two of those: an inventory container's slots and a character's own record are readable, so the join now reaches a name and an item list rather than stopping at base64. Pal-storage slots are not decoded yet.
 
 Presets request only fields that appear in **every** fixture save of their type. Palworld omits properties still holding their default value, so a field like `OilrigClearCount` exists only in saves whose player has cleared one; requesting it would fail strict matching elsewhere. Put such fields in your own `--schema` document with `--allow-partial`.
 
@@ -216,7 +249,7 @@ Projection normalizes the whole decoded property tree before matching, and a wor
 error: projection: decoded tree exceeds 10000000 values
 ```
 
-Use `--full` for world saves. `LevelMeta.sav` and files under `Players/` are far smaller and project normally. Note also that a world save keeps most per-character and per-guild detail inside `RawData` byte blobs, so even a working projection would expose only the identifiers and enums stored outside them. `--full --decode-raw` opens the item-container slots; the rest are still base64.
+Use `--full` for world saves. `LevelMeta.sav` and files under `Players/` are far smaller and project normally. Note also that a world save keeps most per-character and per-guild detail inside `RawData` byte blobs, so even a working projection would expose only the identifiers and enums stored outside them. `--full --decode-raw` opens the item-container slots and the character records; the rest are still base64.
 
 ### Fetch the schema over HTTP
 

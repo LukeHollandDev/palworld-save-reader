@@ -16,6 +16,7 @@
 package palworld
 
 import (
+	"github.com/LukeHollandDev/palworld-save-reader/internal/gvas"
 	"github.com/LukeHollandDev/palworld-save-reader/internal/savefile"
 )
 
@@ -45,21 +46,30 @@ func ReadWithOptions(data []byte, options savefile.Options) (*savefile.Save, err
 // TypeHints returns Palworld's path-to-struct table. The result is a copy, so a
 // caller may adjust it and pass it back through savefile.Options.
 func TypeHints() map[string]string {
-	return withTypeHints(savefile.Options{}).GVAS.TypeHints
+	return withGVASTypeHints(gvas.Options{}).TypeHints
 }
 
 // withTypeHints merges the built-in hints under the caller's, leaving the
 // caller's Options and map untouched.
 func withTypeHints(options savefile.Options) savefile.Options {
-	merged := make(map[string]string, len(typeHints)+len(options.GVAS.TypeHints))
+	options.GVAS = withGVASTypeHints(options.GVAS)
+	return options
+}
+
+// withGVASTypeHints is withTypeHints for a parse with no container around it,
+// which is what decoding a nested property stream out of a RawData blob is. Both
+// entry points share one merge so a nested stream is hinted exactly like the
+// archive it came out of.
+func withGVASTypeHints(options gvas.Options) gvas.Options {
+	merged := make(map[string]string, len(typeHints)+len(options.TypeHints))
 	for path, hint := range typeHints {
 		merged[path] = hint
 	}
-	for path, hint := range options.GVAS.TypeHints {
+	for path, hint := range options.TypeHints {
 		// An invalid entry is copied through rather than dropped so gvas reports
 		// it to the caller instead of silently ignoring it.
 		merged[path] = hint
 	}
-	options.GVAS.TypeHints = merged
+	options.TypeHints = merged
 	return options
 }

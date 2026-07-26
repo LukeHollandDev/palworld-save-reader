@@ -14,15 +14,22 @@ import (
 	"github.com/LukeHollandDev/palworld-save-reader/internal/palworld"
 )
 
-// itemSlotPath is the one path --decode-raw acts on today. Stating it here
-// rather than reaching into palworld's table means a change to that table has
-// to be reflected deliberately, and TestExpanderPathMatchesPalworldTable holds
-// the two together.
-const itemSlotPath = ".worldSaveData.ItemContainerSaveData.Value.Slots.Slots.RawData"
+// The paths --decode-raw acts on. Stating them here rather than reaching into
+// palworld's table means a change to that table has to be reflected
+// deliberately, and TestExpanderPathMatchesPalworldTable holds the two together.
+const (
+	itemSlotPath  = ".worldSaveData.ItemContainerSaveData.Value.Slots.Slots.RawData"
+	characterPath = ".worldSaveData.CharacterSaveParameterMap.Value.RawData"
+)
 
 func TestExpanderPathMatchesPalworldTable(t *testing.T) {
-	if got := palworld.ClassifyRawData(itemSlotPath); got != palworld.RawDataItemSlot {
-		t.Fatalf("palworld no longer classifies %s as an item slot (got %v)", itemSlotPath, got)
+	for path, want := range map[string]palworld.RawDataKind{
+		itemSlotPath:  palworld.RawDataItemSlot,
+		characterPath: palworld.RawDataCharacter,
+	} {
+		if got := palworld.ClassifyRawData(path); got != want {
+			t.Errorf("palworld classifies %s as %v, want %v", path, got, want)
+		}
 	}
 }
 
@@ -157,12 +164,152 @@ func TestDecodeRawReportsDynamicItemIDAndTrailer(t *testing.T) {
 func TestDecodeRawIgnoresUnknownPaths(t *testing.T) {
 	payload := slotPayload(1, 2, "PalSphere", make([]byte, 52))
 	for _, path := range []string{
-		".worldSaveData.CharacterSaveParameterMap.Value.RawData",
+		".worldSaveData.CharacterContainerSaveData.Value.Slots.Slots.RawData",
 		".worldSaveData.ItemContainerSaveData.Value.Slots.Slots.CustomVersionData",
+		".worldSaveData.ItemContainerSaveData.Value.RawData",
 	} {
 		if _, ok := byteArrayAt(t, true, path, payload)["decoded"]; ok {
 			t.Errorf("%s produced a decoded block", path)
 		}
+	}
+}
+
+// characterPayload builds the nested property stream Palworld writes into a
+// character RawData, with the trailer the fixture world always carries.
+func characterPayload(nickname string, trailer []byte) []byte {
+	var name syntheticArchive
+	name.fstring(nickname)
+
+	var inner syntheticArchive
+	inner.property("NickName", "StrProperty", name.data)
+	inner.fstring("None")
+
+	// A StructProperty tag carries its struct type and GUID between the array
+	// index and the optional-GUID flag, which syntheticArchive.property does not
+	// write, so the tag goes out by hand here.
+	var stream syntheticArchive
+	stream.fstring("SaveParameter")
+	stream.fstring("StructProperty")
+	stream.u32(uint32(len(inner.data)))
+	stream.u32(0)
+	stream.fstring("PalIndividualCharacterSaveParameter")
+	stream.data = append(stream.data, make([]byte, 16)...)
+	stream.u8(0)
+	stream.data = append(stream.data, inner.data...)
+	stream.fstring("None")
+	return append(stream.data, trailer...)
+}
+
+// characterTrailer is four zero bytes, a group id, four more zero bytes.
+func characterTrailer() []byte {
+	trailer := make([]byte, 24)
+	copy(trailer[4:], []byte{
+		0xb9, 0x17, 0xf7, 0x7b, 0x38, 0x48, 0x4b, 0x4a,
+		0x54, 0x0a, 0x0a, 0xb1, 0x8f, 0x16, 0xcc, 0xe4,
+	})
+	return trailer
+}
+
+// TestDecodeRawExpandsACharacterStream is the phase 2 rendering: a nested stream
+// comes out as the same property list every other part of the dump uses, so a
+// consumer needs no special case for it, and the base64 still survives.
+func TestDecodeRawExpandsACharacterStream(t *testing.T) {
+	payload := characterPayload("Luke", characterTrailer())
+
+	plain := byteArrayAt(t, false, characterPath, payload)
+	if _, ok := plain["decoded"]; ok {
+		t.Error("--full without --decode-raw decoded a character stream")
+	}
+
+	node := byteArrayAt(t, true, characterPath, payload)
+	if node["values"] == nil {
+		t.Error("--decode-raw dropped the raw byte array")
+	}
+	block, ok := node["decoded"].(map[string]any)
+	if !ok {
+		t.Fatalf("decoded block is %T", node["decoded"])
+	}
+	if block["kind"] != "character" {
+		t.Errorf("kind = %v", block["kind"])
+	}
+	if block["groupId"] != "7bf717b9-4a4b-4838-b10a-0a54e4cc168f" {
+		t.Errorf("groupId = %v", block["groupId"])
+	}
+	// The framing is zero bytes around the group id, so there is nothing left to
+	// report and the key should be absent.
+	if _, ok := block["trailer"]; ok {
+		t.Error("a bare character trailer was reported")
+	}
+
+	// The nested properties must be rendered by the same expander, which is what
+	// makes a nickname reachable by walking the dump rather than by decoding
+	// base64 out of it.
+	properties, ok := block["properties"].([]any)
+	if !ok || len(properties) != 1 {
+		t.Fatalf("properties = %#v", block["properties"])
+	}
+	saveParameter, ok := properties[0].(map[string]any)
+	if !ok || saveParameter["name"] != "SaveParameter" {
+		t.Fatalf("first property = %#v", properties[0])
+	}
+	structNode, ok := saveParameter["value"].(map[string]any)
+	if !ok {
+		t.Fatalf("SaveParameter value is %T", saveParameter["value"])
+	}
+	if structNode["structType"] != "PalIndividualCharacterSaveParameter" {
+		t.Errorf("structType = %v", structNode["structType"])
+	}
+	inner, ok := structNode["value"].([]any)
+	if !ok || len(inner) != 1 {
+		t.Fatalf("inner properties = %#v", structNode["value"])
+	}
+	nickname, ok := inner[0].(map[string]any)
+	if !ok || nickname["name"] != "NickName" || nickname["value"] != "Luke" {
+		t.Errorf("nickname property = %#v", inner[0])
+	}
+}
+
+// TestDecodeRawReportsCharacterFramingItCannotName covers the other trailer case:
+// a byte the layout does not account for is surfaced rather than silently
+// dropped, because that byte is the evidence the framing has changed.
+func TestDecodeRawReportsCharacterFramingItCannotName(t *testing.T) {
+	trailer := characterTrailer()
+	trailer[len(trailer)-1] = 9
+
+	block, ok := byteArrayAt(t, true, characterPath, characterPayload("Luke", trailer))["decoded"].(map[string]any)
+	if !ok {
+		t.Fatal("no decoded block")
+	}
+	encoded, ok := block["trailer"].(string)
+	if !ok {
+		t.Fatalf("trailer is %T, want a base64 string", block["trailer"])
+	}
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) != len(trailer) || raw[len(raw)-1] != 9 {
+		t.Errorf("trailer = % x", raw)
+	}
+}
+
+// TestDecodeRawReportsABadCharacterBlobInline matches the item-slot behaviour: a
+// blob that will not decode is reported in place, and the dump still emits every
+// byte that was in the file.
+func TestDecodeRawReportsABadCharacterBlobInline(t *testing.T) {
+	node := byteArrayAt(t, true, characterPath, []byte{1, 2, 3})
+	message, ok := node["decodeError"].(string)
+	if !ok {
+		t.Fatalf("decodeError is %T", node["decodeError"])
+	}
+	if !strings.Contains(message, "character record") {
+		t.Errorf("decodeError = %q", message)
+	}
+	if node["values"] == nil {
+		t.Error("a failed decode dropped the raw byte array")
+	}
+	if _, ok := node["decoded"]; ok {
+		t.Error("a failed decode also produced a decoded block")
 	}
 }
 

@@ -44,6 +44,45 @@ func ParseWithOptions(data []byte, options Options) (*Archive, error) {
 	return parse(data, cfg)
 }
 
+// ParseProperties reads a headerless property stream: a property list
+// terminated by the sentinel name "None", with no GVAS header in front of it.
+// Unreal writes this shape for an object serialized into a byte array rather
+// than into a save of its own, which is how Palworld stores its character
+// records.
+//
+// path prefixes the property paths used to look up Options.TypeHints, so a
+// nested stream can be hinted from the same table as the archive holding it.
+// Pass the path of the byte array the stream came out of, or "" for a stream
+// with no containing archive.
+//
+// The second result is whatever followed the terminator, uninterpreted. Only a
+// caller who knows the enclosing format can say what those bytes mean, so they
+// are handed back rather than dropped or treated as an error. Both results alias
+// data, which must not be modified while they are in use.
+func ParseProperties(data []byte, path string, options Options) (Properties, []byte, error) {
+	cfg, err := options.normalized()
+	if err != nil {
+		return nil, nil, err
+	}
+	if int64(len(data)) > cfg.MaxArchiveBytes {
+		return nil, nil, &LimitError{
+			Kind:  "GVAS property stream bytes",
+			Value: uint64(len(data)),
+			Limit: uint64(cfg.MaxArchiveBytes),
+		}
+	}
+	reader := newArchiveReader(data, cfg)
+	properties, err := readPropertyList(reader, path)
+	if err != nil {
+		return nil, nil, err
+	}
+	trailer, err := reader.take(reader.remaining())
+	if err != nil {
+		return nil, nil, err
+	}
+	return properties, trailer, nil
+}
+
 func parse(data []byte, cfg *decodeConfig) (*Archive, error) {
 	reader := newArchiveReader(data, cfg)
 	header, err := readHeader(reader)
