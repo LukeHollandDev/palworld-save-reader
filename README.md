@@ -1,40 +1,39 @@
-# palworld-save-reader
+# Palworld Save Reader
 
 [![CI](https://github.com/LukeHollandDev/palworld-save-reader/actions/workflows/ci.yml/badge.svg)](https://github.com/LukeHollandDev/palworld-save-reader/actions/workflows/ci.yml)
 [![Go version](https://img.shields.io/github/go-mod/go-version/LukeHollandDev/palworld-save-reader)](go.mod)
 [![License](https://img.shields.io/github/license/LukeHollandDev/palworld-save-reader)](LICENSE)
 
-`palworld-save-reader` is a standalone command-line tool for reading Palworld 1.X saves and writing JSON. It can expand one save's complete decoded property tree for inspection, apply a caller-provided projection that requests only the serialized fields and structure an application needs, or resolve a whole save directory into a player's inventory, pals and name, or a guild's members, bases and workers.
-
-The decoder is implemented in pure Go and does not require cgo, proprietary Oodle libraries, or third-party Go dependencies. The executable is the supported interface; every package lives under `internal/` and cannot be imported by other projects.
+Turn Palworld 1.X saves into JSON. Resolve a whole save directory into players,
+guilds, and world metadata, inspect one save's complete property tree, or select
+only the fields another application needs.
 
 ## Features
 
-- Reads the Mermaid-compressed saves written by Palworld 1.X
-- Selects fields with caller-provided, versioned JSON projection documents
-- Preserves the requested JSON keys, nesting, array structure, and key order
-- Rejects missing, incompatible, or ambiguous matches by default
-- Produces a complete expanded property tree for format inspection
-- Decodes item-container `RawData` slots to item identifiers and stack counts
-- Decodes character `RawData` records to readable player and pal detail
-- Resolves a save directory into a player with their inventory, pals, and name, or a guild with its members, base camps and the pals working at them
-- Applies bounded input, collection, parser, and projection limits
-- Never writes to or modifies a source save
-- Builds for Linux, macOS, and Windows
+- Joins data across saves to resolve players, inventories, Pals, guilds, bases,
+  and workers
+- Reports world metadata, timestamps, and entity counts
+- Expands complete saves into readable JSON
+- Decodes known item, character, group, and base-camp `RawData` layouts
+- Selects fields with versioned JSON projections and bundled presets
+- Preserves unknown data as base64 instead of discarding it
+- Applies bounded input, parser, collection, and projection limits
+- Uses pure Go with no cgo, proprietary Oodle libraries, or third-party modules
 
-## Installation
+## Install
 
-Go 1.26.5 or later is required when building from source.
+Building from source requires Go 1.26.5 or later:
 
-```sh
+```bash
 go install github.com/LukeHollandDev/palworld-save-reader/cmd/palworld-save-reader@latest
 ```
 
-Prebuilt executables are also available from successful GitHub Actions runs and published GitHub Releases.
+Prebuilt executables are also available from GitHub Releases and successful
+GitHub Actions runs.
 
-To build from a clone:
+To build a clone:
 
-```sh
+```bash
 git clone https://github.com/LukeHollandDev/palworld-save-reader.git
 cd palworld-save-reader
 make build
@@ -42,25 +41,78 @@ make build
 
 The executable is written to `bin/palworld-save-reader`.
 
-## Usage
+## Resolve a save directory
 
-Every operation requires an explicit mode:
+Use `--resolve` for interpreted answers that join `Level.sav` with the files
+under `Players/`:
 
-```text
-palworld-save-reader --full [--decode-raw] FILE
-palworld-save-reader --schema PROJECTION.json [--allow-partial] [--explain] FILE
-palworld-save-reader --preset NAME [--allow-partial] [--explain] FILE
-palworld-save-reader --resolve player --id UID --saves DIR
-palworld-save-reader --resolve guild --id GROUPID --saves DIR
-palworld-save-reader --resolve players|guilds|world --saves DIR
+```bash
+palworld-save-reader --resolve world --saves /path/to/WORLDID
+palworld-save-reader --resolve players --saves /path/to/WORLDID
+palworld-save-reader --resolve roster --saves /path/to/WORLDID
+palworld-save-reader --resolve player --id PLAYER_UID --saves /path/to/WORLDID
+palworld-save-reader --resolve guilds --saves /path/to/WORLDID
+palworld-save-reader --resolve guild --id GROUP_ID --saves /path/to/WORLDID
+```
+
+The directory should contain `Level.sav`, optionally `LevelMeta.sav`, and a
+`Players/` directory. Player IDs may use the dashed GUID form or the dash-free
+form used in save filenames.
+
+Each result carries a `resolveVersion`. Missing joins are reported in the
+document's `warnings` array so an empty collection can be distinguished from
+data that could not be resolved.
+
+`roster` is the compact integration-oriented result: player ID, nickname,
+level, and guild. Use it when those fields are sufficient; `players` retains
+the complete inventory and Pal detail intended for standalone inspection.
+
+## Inspect a complete save
+
+Use `--full` to expand one save into a JSON property tree:
+
+```bash
+palworld-save-reader --full /path/to/Level.sav > Level.sav.json
+```
+
+Add `--decode-raw` to interpret known `RawData` layouts while preserving the
+original base64 bytes:
+
+```bash
+palworld-save-reader --full --decode-raw /path/to/Level.sav > Level.sav.json
+```
+
+Known layouts include item slots, character records, character-container
+references, groups, base camps, and base-camp worker directors. Unknown layouts
+remain base64. Full world output can be hundreds of megabytes and use
+substantial memory.
+
+> **Privacy:** decoded output can include account identifiers, player names,
+> locations, progression, guild details, and server metadata. `*.sav.json` is
+> ignored by default; never publish a real decoded save in an issue, example,
+> or test fixture.
+
+## Select fields with projections
+
+List the bundled projections:
+
+```bash
 palworld-save-reader --list-presets
 ```
 
-### Project selected fields
+Then apply one by name:
 
-A projection document describes the exact JSON shape to return. It is not an official Palworld schema or a conventional JSON Schema, and its output keys are not application-specific aliases: requested keys must match serialized save-property names exactly and are matched case-sensitively.
+```bash
+palworld-save-reader --preset player-details /path/to/player.sav
+```
 
-For example, this projection requests an identifier, last-online value, and position from a compatible structure in a player save:
+The presets cover player identity, details, containers, progression, quests,
+exploration, appearance, and world metadata. Their reported `gameVersion`
+records the fixture version they were verified against; it is not a
+compatibility guarantee.
+
+For a custom shape, create a projection document such as
+`player-location.json`:
 
 ```json
 {
@@ -71,7 +123,6 @@ For example, this projection requests an identifier, last-online value, and posi
   "saveType": "player.sav",
   "shape": {
     "PlayerUId": "",
-    "LastOnlineDateTime": 0,
     "LastTransform": {
       "Translation": {
         "X": 0,
@@ -85,465 +136,81 @@ For example, this projection requests an identifier, last-online value, and posi
 
 Apply it to one save:
 
-```sh
+```bash
 palworld-save-reader --schema player-location.json /path/to/player.sav
 ```
 
-The result keeps the requested keys, nesting, and key order, with each placeholder replaced by the matched save value:
+Requested field names are case-sensitive serialized property names. Projection
+placeholders describe the expected value:
 
-```json
-{
-  "PlayerUId": "00000000-0000-0000-0000-000000000000",
-  "LastOnlineDateTime": 639200000000000000,
-  "LastTransform": {
-    "Translation": {
-      "X": -184343.5,
-      "Y": 256561.11,
-      "Z": -1378.54
-    }
-  }
-}
-```
-
-The matcher searches the decoded save for structures containing the requested field names and compatible nested values. It selects a result only when there is one highest-scoring compatible structure; it never selects a field solely because it has the requested primitive type.
-
-Projection format version 1 uses these shape values:
-
-| Projection value | Requested decoded value |
+| Placeholder | Requested value |
 | --- | --- |
-| `{ "Field": ... }` | An object containing the exact child name |
-| `[ ... ]` | A repeated collection whose elements use the single element shape |
+| `{ "Field": ... }` | Object containing that exact child name |
+| `[ ... ]` | Repeated collection using one element shape |
 | `null` | Any JSON-compatible value |
-| `""` | A string |
-| `0` | A number |
-| `false` | A boolean |
+| `""` | String |
+| `0` | Number |
+| `false` | Boolean |
 
-Objects and arrays must not be empty, and a projection array must contain exactly one element shape. Placeholder values are type hints and are replaced by values from the save.
+Matching is strict by default. `--allow-partial` emits `null` for unresolved or
+incompatible fields, while `--explain` writes matching diagnostics to standard
+error.
 
-For matching purposes, an Unreal property list is an object keyed by its serialized property names, a struct wrapper is transparent, a map is an array of `{ "Key": ..., "Value": ... }` objects, and arrays and sets are JSON arrays. An undecoded raw value is represented as an object containing base64 `raw`, byte-count `bytes`, and explanatory `reason` fields.
+Projection normalizes the complete decoded tree and cannot process a large
+`Level.sav` within its built-in node limit. Use `--full` or `--resolve` for
+world saves. The projection format contract is
+[`projection-v1.schema.json`](projection-v1.schema.json).
 
-Use `--explain` to write JSON diagnostics to standard error while keeping projected JSON on standard output:
+## Command reference
 
-```sh
-palworld-save-reader --schema player-location.json --explain /path/to/player.sav > player.json
-```
+Every invocation requires one explicit mode:
 
-Strict matching is the default. `--allow-partial` writes `null` for unresolved or incompatible fields and reports each problem to standard error:
-
-```sh
-palworld-save-reader --schema player-location.json --allow-partial /path/to/player.sav
-```
-
-Projection version 1 operates on one physical save at a time. It does not join `Level.sav` with files under `Players/`, rename fields, calculate values, aggregate records, sort, or filter. That is deliberate: a projection's guarantee is that the shape it returns is the shape the save holds. For the join across files, use [`--resolve`](#resolve-a-player-or-a-guild-across-files), which is hand-written Go with an output shape this tool versions; everything else remains the calling application's.
-
-### Inspect a complete save
-
-Use `--full` to expand one save into a JSON property tree:
-
-```sh
-palworld-save-reader --full /path/to/Level.sav
-```
-
-Full mode is useful for discovering serialized field names and researching format changes before writing a projection. Large world saves can produce hundreds of megabytes of JSON and require substantial memory. Output may include player names, identifiers, and other private save content, so review it before sharing.
-
-### Decode `RawData` byte arrays
-
-A world save keeps much of its detail in `RawData` byte arrays. Unreal tags each one as nothing more than an array of bytes, so they are emitted as base64 by default. `--decode-raw` additionally interprets the ones whose layout is known:
-
-```sh
-palworld-save-reader --full --decode-raw /path/to/Level.sav
-```
-
-A recognised blob gains a `decoded` object beside the base64, which is kept so nothing is lost:
-
-```json
-{
-  "innerType": "ByteProperty",
-  "values": "BgAAAAEAAAANAAAARnVyQXJtb3JDb2xkAAAA…",
-  "decoded": {
-    "kind": "itemSlot",
-    "slotIndex": 6,
-    "count": 1,
-    "itemId": "FurArmorCold",
-    "dynamicItemId": "4cf65985-51e4-45c1-9f27-5250ed5c7fcd"
-  }
-}
-```
-
-`dynamicItemId` appears only when the item has a per-instance record in `worldSaveData.DynamicItemSaveData`, which is where durability and similar state lives. A `trailer` field appears when a slot carries bytes that are not decoded yet. A blob that fails to decode reports `decodeError` next to its base64 rather than failing the dump.
-
-Six layouts are decoded. The first is the item-container slot above, at `worldSaveData.ItemContainerSaveData`. Together with `player-containers` it makes a player's inventory readable: that preset returns the container identifiers, and those identifiers key the containers whose slots now carry item names and stack counts.
-
-The second is the character record at `worldSaveData.CharacterSaveParameterMap`, which holds one player or one pal. It is not a bespoke record but a complete Unreal property stream written without a header, so it comes out as the same property list the rest of the dump uses:
-
-```json
-{
-  "innerType": "ByteProperty",
-  "values": "DgAAAFNhdmVQYXJhbWV0ZXIADwAAAFN0cnVjdFByb3BlcnR5…",
-  "decoded": {
-    "kind": "character",
-    "groupId": "7bf717b9-4a4b-4838-b10a-0a54e4cc168f",
-    "properties": [
-      {
-        "name": "SaveParameter",
-        "type": "StructProperty",
-        "value": {
-          "structType": "PalIndividualCharacterSaveParameter",
-          "value": [
-            { "name": "Level", "type": "ByteProperty", "enumType": "None", "value": 46 },
-            { "name": "Exp", "type": "Int64Property", "value": 1641238 },
-            { "name": "NickName", "type": "StrProperty", "value": "…" },
-            { "name": "IsPlayer", "type": "BoolProperty", "value": true }
-          ]
-        }
-      }
-    ]
-  }
-}
-```
-
-A pal's record carries `CharacterID` naming its species instead of `IsPlayer`, along with its level, IVs, passive skills, and any nickname given to it.
-
-This is where a player's name lives, and it is the only place a `player.sav` cannot reach: nothing in one holds a name, so no preset returns one. `groupId` keys `worldSaveData.GroupSaveDataMap`, the guild the character belongs to. Against fixtures from `1.0.1.100619`, all 3,349 records decoded, all eight distinct group ids resolved to a group, and the nine records flagged as players matched the nine save files under `Players/` one for one.
-
-The third is the character-container slot at `worldSaveData.CharacterContainerSaveData`, which is a reference rather than a record: it says which character record occupies a slot of a pal party, a storage box, or a base camp's worker list.
-
-```json
-{
-  "innerType": "ByteProperty",
-  "values": "AAAAAAAAAAAAAAAAAAAAACQHFWvvTBgheKBagQe/lfsAAAAAAAA=",
-  "decoded": {
-    "kind": "characterSlot",
-    "instanceId": "6b150724-2118-4cef-815a-a078fb95bf07",
-    "empty": false
-  }
-}
-```
-
-That `instanceId` keys `CharacterSaveParameterMap`, so a container's slots and the records above join into "which pals does this box hold, and what are they". In the fixture world 3,340 of the 3,347 slot references resolved to a record, each exactly once, and those 3,340 are precisely the world's pal population. The seven that resolve to nothing all sit in containers nothing else in the save points at — leftovers, holding references to characters that are also gone.
-
-The fourth is the group at `worldSaveData.GroupSaveDataMap`: a guild, or one of the world's fixed factions. Both share the first half of the record, and only a guild carries the second:
-
-```json
-{
-  "innerType": "ByteProperty",
-  "values": "uRf3ezhIS0pUCgqxjxbM5CEAAAAxQTJCM0M0RDAwMDAw…",
-  "decoded": {
-    "kind": "group",
-    "groupId": "7bf717b9-4a4b-4838-b10a-0a54e4cc168f",
-    "name": "1A2B3C4D000000000000000000000000",
-    "organizationType": 0,
-    "handles": [
-      { "instanceId": "6b150724-2118-4cef-815a-a078fb95bf07" },
-      { "instanceId": "2b7c91af-4e0d-4c33-9f21-ab6071d3c845", "playerUId": "1a2b3c4d-0000-0000-0000-000000000000" }
-    ],
-    "baseIds": ["5c3e8d10-62a7-4f19-8b40-d2ec37519ab6"],
-    "guild": {
-      "name": "Kestrel Company",
-      "admin": "1a2b3c4d-0000-0000-0000-000000000000",
-      "namedBy": "1a2b3c4d-0000-0000-0000-000000000000",
-      "baseCampLevel": 19,
-      "basePoints": ["9d41f70b-5386-421c-a07e-3fb964c8e1d5"],
-      "members": [
-        { "playerUId": "1a2b3c4d-0000-0000-0000-000000000000", "name": "Ada", "lastOnlineTicks": 11223344550000, "role": 1 }
-      ],
-      "reserved": "AAAAAAIAAAACAwAAAAA=",
-      "trailer": "AwAAAAIFAAAAAAMEBQcDAgAAAAQHBAAAAAAAAAAA"
-    }
-  }
-}
-```
-
-A group's `handles` list every character in it, players and pals alike; `name` is the admin's account id in hex rather than the guild's display name, which is in `guild.name`. `reserved` and `trailer` are runs of bytes whose meaning is not known; they are byte-identical in all eight fixture guilds and preserved rather than dropped, so a change in them is visible. `lastOnlineTicks` is elapsed real time since the world began rather than a date — the same clock as `GameTimeSaveData.RealDateTimeTicks`, which is how it was identified: two members carry exactly the world's current value, because they were online when the save was written.
-
-Whether the guild half is present is stated by the sibling `GroupType` property, which this renderer does not see: a `RawData` blob is expanded knowing only its own path. So it attempts the guild half and reports it when it decodes. That inference is safe rather than lucky — an organization's four-byte remainder cannot satisfy the guild fields, and a test asserts it never does — but `--resolve guild` is told which is which instead of inferring it.
-
-The fifth and sixth are the base camp at `worldSaveData.BaseCampSaveData` and the worker director nested inside it:
-
-```json
-{
-  "decoded": {
-    "kind": "baseCamp",
-    "id": "5c3e8d10-62a7-4f19-8b40-d2ec37519ab6",
-    "name": "拠点1",
-    "state": 1,
-    "areaRange": 3500,
-    "groupId": "7bf717b9-4a4b-4838-b10a-0a54e4cc168f",
-    "ownerMapObjectInstanceId": "9d41f70b-5386-421c-a07e-3fb964c8e1d5",
-    "transform": {
-      "translation": { "x": -122500.5, "y": 48250.25, "z": 2600.75 },
-      "rotation": { "x": 0, "y": 0, "z": 0.8628, "w": 0.5056 },
-      "scale": { "x": 1, "y": 1, "z": 1 }
-    }
-  }
-}
-```
-
-`groupId` is the guild that owns the camp, and the guild lists the camp in its own `baseIds`, so the two records name each other. `transform.translation` is the camp's position on the same scale as a player's `LastTransform`. The worker director's `containerId` keys `CharacterContainerSaveData`: the container holding the pals that work at the camp. Those are the pals no player owns — 205 of the fixture world's 3,340, with the other 3,135 in a player's party or box.
-
-The flag is opt-in because it is not free: on a 4.0MB world save it adds about 26% to the JSON and a quarter again to the run time. It only applies to `--full`; pairing it with a projection mode is a usage error rather than a silently ignored flag. The six layouts cover 40,936 of that save's 273,120 `RawData` blobs, all of which decoded without error; the rest — map objects, foliage, work assignments, dynamic items — are still base64.
-
-### Resolve a player or a guild across files
-
-The modes above read one file. `--resolve` reads a save directory and answers a question that spans all of it:
-
-```sh
-palworld-save-reader --resolve player --id 1A2B3C4D000000000000000000000000 --saves /path/to/SaveGames/0/WORLDID
-palworld-save-reader --resolve players --saves /path/to/SaveGames/0/WORLDID
-palworld-save-reader --resolve guild --id 7bf717b9-4a4b-4838-b10a-0a54e4cc168f --saves /path/to/SaveGames/0/WORLDID
-palworld-save-reader --resolve guilds --saves /path/to/SaveGames/0/WORLDID
-palworld-save-reader --resolve world --saves /path/to/SaveGames/0/WORLDID
-```
-
-`--saves` names the directory holding `Level.sav`, `LevelMeta.sav` and `Players/`, so a caller points at a save rather than naming files. `--id` accepts an id in either spelling the game uses: the dashed form these documents print, or the dash-free form a player's save file is named after. For `--resolve player` it is a player UID, matched against the `PlayerUId` inside each player save rather than against its file name, so a renamed file still resolves. For `--resolve guild` it is a group id — the value a resolved player reports as its `guild.id`.
-
-A resolved player is composed rather than projected. The result is a document this tool defines, carrying its own `resolveVersion`:
-
-```json
-{
-  "resolveVersion": 2,
-  "kind": "player",
-  "player": {
-    "playerUId": "1a2b3c4d-0000-0000-0000-000000000000",
-    "instanceId": "9c0e4d21-7a63-4f10-8b2e-51d7c6a90f34",
-    "platform": "Steam",
-    "lastOnline": { "ticks": 639204643642480000, "utc": "2026-07-24T04:32:44Z" },
-    "position": { "x": -184343.5, "y": 256561.11, "z": -1378.54 },
-    "technologyPoints": 48,
-    "character": { "nickname": "…", "level": 56, "exp": 4563093, "hp": 2734000, "fullStomach": 56.72 },
-    "guild": { "id": "7bf717b9-4a4b-4838-b10a-0a54e4cc168f", "name": "Kestrel Company", "memberCount": 2 },
-    "inventory": {
-      "common": [
-        { "slot": 0, "itemId": "Money", "count": 70434 },
-        { "slot": 1, "itemId": "FurArmorCold", "count": 1, "dynamicItemId": "4cf65985-51e4-45c1-9f27-5250ed5c7fcd" }
-      ],
-      "dropSlot": [],
-      "essential": [],
-      "weapons": [],
-      "armor": [],
-      "food": []
-    },
-    "pals": [
-      {
-        "instanceId": "6b150724-2118-4cef-815a-a078fb95bf07",
-        "species": "Suzaku",
-        "gender": "Female",
-        "level": 42,
-        "exp": 695203,
-        "hp": 3419000,
-        "location": "party",
-        "slot": 1,
-        "talents": { "hp": 25, "shot": 15, "defense": 76 },
-        "passiveSkills": ["PAL_sadist"]
-      }
-    ]
-  }
-}
-```
-
-The document is grouped by where each part came from, because that is what a reader needs to know when something is missing. `playerUId` down to `technologyPoints` are from the player's own save. `character`, `guild` and `pals` are from the world save, and are absent when the join found nothing. `nickname` is in `character` for exactly that reason: a `player.sav` does not contain a name.
-
-`species` is Palworld's internal `CharacterID`, not the displayed species name, and `hp` is Unreal's `FixedPoint64` value as stored — mapping either to what the game shows needs game data this tool does not ship. The six inventory containers and `pals` are always present, empty rather than absent, so a consumer can index them without checking. `location` is `party` or `storage`, and `slot` is the index within that container, so the two together are unique while `slot` alone is not.
-
-`--resolve players` returns the same documents as an array under `"players"`, streamed one at a time as they are produced.
-
-`--resolve guild` answers the other half of a save directory: who is in a guild, where its bases are, and which pals work at them. It reads the world save only — no `player.sav` is opened, and none is needed, because a guild's record carries its members' names itself:
-
-```json
-{
-  "resolveVersion": 2,
-  "kind": "guild",
-  "guild": {
-    "groupId": "7bf717b9-4a4b-4838-b10a-0a54e4cc168f",
-    "name": "Kestrel Company",
-    "admin": "1a2b3c4d-0000-0000-0000-000000000000",
-    "baseCampLevel": 19,
-    "members": [
-      {
-        "playerUId": "1a2b3c4d-0000-0000-0000-000000000000",
-        "name": "Ada",
-        "lastOnline": { "ticks": 11223344550000, "seconds": 1122334, "days": 12 },
-        "role": 1
-      }
-    ],
-    "bases": [
-      {
-        "id": "5c3e8d10-62a7-4f19-8b40-d2ec37519ab6",
-        "name": "拠点1",
-        "location": { "x": -122500.5, "y": 48250.25, "z": 2600.75 },
-        "areaRange": 3500,
-        "ownerMapObjectId": "9d41f70b-5386-421c-a07e-3fb964c8e1d5",
-        "workers": [
-          {
-            "instanceId": "2b7c91af-4e0d-4c33-9f21-ab6071d3c845",
-            "species": "SwordCutlassfish",
-            "gender": "Female",
-            "level": 35,
-            "exp": 175995,
-            "hp": 2289000,
-            "location": "base",
-            "slot": 0,
-            "talents": { "hp": 74, "shot": 35, "defense": 93 }
-          }
-        ]
-      }
-    ],
-    "counts": { "characters": 410, "players": 1, "pals": 409, "bases": 3, "workers": 27 }
-  }
-}
-```
-
-`counts` comes from the guild's own list of characters rather than from the join, which makes it the check on it: `players` is the number of member accounts, and `pals` is what the containers should hold. `role` is `1` for the admin of every guild in the fixture world and `3` for its only non-admin member; the values are reported unmapped, because two samples are not a decoding. `lastOnline` is elapsed real time since the world began rather than a date, the same clock as `realTime` below.
-
-The workers are the pals no player owns. In the fixture world 205 pals sit in base camp containers and 3,135 in a player's party or box, which together are exactly the 3,340 pals the guilds account for — three collections describing one population by three independent routes, and a test asserts they agree.
-
-`--resolve guilds` returns every guild as an array under `"guilds"`. `--resolve world` returns the world name, in-game day, save time, and entity counts, including the player/pal split of the character map:
-
-```json
-{
-  "resolveVersion": 2,
-  "kind": "world",
-  "world": {
-    "name": "My World",
-    "saveVersion": 100,
-    "revision": 100619,
-    "savedAt": { "ticks": 639204910905580000, "utc": "2026-07-24T11:58:10Z" },
-    "inGameDay": 693,
-    "gameTime": { "ticks": 598979130000000, "seconds": 59897913, "days": 693 },
-    "realTime": { "ticks": 13184109750000, "seconds": 1318410, "days": 15 },
-    "counts": {
-      "playerSaves": 9, "characters": 3349, "players": 9, "pals": 3340,
-      "itemContainers": 13838, "characterContainers": 46, "baseCamps": 19,
-      "groups": 15, "dynamicItems": 1008, "mapObjects": 12351, "foliageGrids": 1266
-    }
-  }
-}
-```
-
-`revision` is the Palworld build that wrote the save, which is the value to quote when a decode goes wrong. `gameTime` and `realTime` are elapsed times rather than dates, which is why they are reported in seconds and days rather than as a timestamp.
-
-A join that finds nothing is reported rather than silently omitted. Every unresolved reference adds a line to a `warnings` array on the document it belongs to, so "this player has no pals" is distinguishable from "this player's pal container is not in the world save". That includes references the save itself has outlived: a container slot can name a character the world no longer holds, and 7 of the fixture world's 3,347 slot references do.
-
-One limit is worth knowing: a resolve reads the world save as it finds it, so a player who has never logged in has no character record and no name. A guild's own record is now decoded, so `guild` on a player carries the name and member count as well as the id, and `--resolve guild` returns the rest.
-
-Resolving is cheap, unlike `--full`. Against a 4.0MB world save containing 3,349 character records, 13,838 item containers and 273,120 `RawData` blobs, resolving all nine players took 0.12s and peaked at 160MB of memory, and resolving all eight guilds with their 19 bases took 0.06s and 108MB — against `--full`'s 1.27s and 1.7GB on the same file. That is a deliberate property rather than luck: every collection is iterated instead of collected, each is read exactly once per invocation, and a character record's nested property stream is decoded only when the record belongs to a player being resolved. A test asserts the peak heap stays under a fixed budget so a regression to eager decoding fails the build.
-
-Because the output names things like `pals` and `inventory`, it encodes an interpretation that a Palworld update can invalidate. `--full`, `--schema` and `--preset` stay free of that by design and remain the escape hatch; `resolveVersion` marks changes to this shape.
-
-### Use bundled presets
-
-Bundled presets are projection documents tested against a private fixture from one exact Palworld version. List the available names, along with the version each was verified against and the save type it reads:
-
-```sh
+```text
+palworld-save-reader --full [--decode-raw] FILE
+palworld-save-reader --schema PROJECTION.json [--allow-partial] [--explain] FILE
+palworld-save-reader --preset NAME [--allow-partial] [--explain] FILE
+palworld-save-reader --resolve player --id UID --saves DIR
+palworld-save-reader --resolve guild --id GROUPID --saves DIR
+palworld-save-reader --resolve players|roster|guilds|world --saves DIR
 palworld-save-reader --list-presets
+palworld-save-reader --list-resolvers
+palworld-save-reader --version
 ```
 
-The result is a JSON array. Select a preset by name:
+Results are written to standard output and diagnostics to standard error. Exit
+status `0` means success, `1` means the save could not be decoded, projected, or
+resolved, and `2` means the command or projection document was invalid.
 
-```sh
-palworld-save-reader --preset player-details /path/to/player.sav
-```
-
-All bundled presets were verified against private fixtures from Palworld `1.0.1.100619`:
-
-| Preset | Save type | Requests |
-| --- | --- | --- |
-| `player-details` | `player.sav` | Identifier, position and facing, capture record, Paldeck flags, last-online time |
-| `player-identity` | `player.sav` | Account and character identifiers, platform, last-online time |
-| `player-containers` | `player.sav` | Inventory, equipment, and pal-storage container identifiers |
-| `player-progression` | `player.sav` | Technology points, unlocked recipes, completed quests, craft counts |
-| `player-quests` | `player.sav` | In-progress quests with their block index and progress counters |
-| `player-exploration` | `player.sav` | Fast-travel, area-discovery, and note flags |
-| `player-appearance` | `player.sav` | Body, head, and hair meshes, character colours, voice |
-| `world-meta` | `LevelMeta.sav` | World name, in-game day, save timestamp and version |
-
-`player-identity` is the one that exposes `IndividualId.InstanceId`, the key that identifies a player's character inside a world save. No preset returns a player's name, because a `player.sav` does not contain one — every string in it is an identifier, an enum, or an asset name. The name is in the world save, reachable with [`--full --decode-raw`](#decode-rawdata-byte-arrays) or, already joined, with [`--resolve player`](#resolve-a-player-or-a-guild-across-files).
-
-`player-progression` reports quests a player has finished; `player-quests` reports the ones still open, which is a separate array carrying per-objective counters.
-
-A preset reads one file, so joining a player to the world is not something a preset does. The identifiers each one returns are the keys for that join: against fixtures from `1.0.1.100619`, `IndividualId.InstanceId` matched a `CharacterSaveParameterMap` key, the six `InventoryInfo` container identifiers matched `ItemContainerSaveData` keys, and `PalStorageContainerId` and `OtomoCharacterContainerId` matched `CharacterContainerSaveData` keys — each exactly once. A player save's filename is its `PlayerUId` with the dashes removed. `--full --decode-raw` makes all three of those readable rather than base64, and [`--resolve player`](#resolve-a-player-or-a-guild-across-files) walks the join for you. Use the presets when you want the identifiers and nothing interpreted; use `--resolve` when you want the answer.
-
-Presets request only fields that appear in **every** fixture save of their type. Palworld omits properties still holding their default value, so a field like `OilrigClearCount` exists only in saves whose player has cleared one; requesting it would fail strict matching elsewhere. Put such fields in your own `--schema` document with `--allow-partial`.
-
-A preset's `gameVersion` is provenance, not a selector: it records the build the document was verified against and is reported by `--list-presets`, but it plays no part in choosing a preset and does not guarantee compatibility with another game release. Because a name identifies a preset on its own, two bundled documents must not share one. New presets go in [`internal/projection/presets/`](internal/projection/presets) and are only added after being exercised against a private save from the version they declare.
-
-### Projection does not work on `Level.sav`
-
-Projection normalizes the whole decoded property tree before matching, and a world save exceeds the built-in ceiling of 10,000,000 nodes, so `--schema` and `--preset` fail on `Level.sav` regardless of how small the requested shape is:
-
-```text
-error: projection: decoded tree exceeds 10000000 values
-```
-
-Use `--full` or `--resolve` for world saves. `LevelMeta.sav` and files under `Players/` are far smaller and project normally. Note also that a world save keeps most per-character and per-guild detail inside `RawData` byte blobs, so even a working projection would expose only the identifiers and enums stored outside them. `--full --decode-raw` opens the item-container slots, the character records, the character-container slots, the groups and the base camps; the rest are still base64.
-
-### Fetch the schema over HTTP
-
-[`projection-v1.schema.json`](projection-v1.schema.json) sits at the top level of the repository, so a tool or editor can read the format contract straight from GitHub instead of vendoring a copy:
-
-```text
-https://github.com/LukeHollandDev/palworld-save-reader/raw/main/projection-v1.schema.json
-```
-
-The filename carries the format version deliberately. A document declaring `projectionVersion: 1` must keep validating against the v1 contract, so a future version becomes a new file rather than an edit to this one. Pin a release tag instead of `main` when a build needs a copy that cannot change underneath it.
-
-Nothing in the executable reads the schema — `palworld-save-reader` validates projection documents with its own parser, and the schema exists for editors and external tooling. The preset documents are embedded, and are also readable at [`internal/projection/presets/`](internal/projection/presets) if you want one as a starting point.
-
-### Use it from another application
-
-The command writes result JSON to standard output and diagnostics to standard error, making it suitable for pipelines and optional external-process integrations:
-
-```sh
-palworld-save-reader --schema wanted.json /path/to/save.sav | jq .
-```
-
-An application can discover a configured `palworld-save-reader` executable, invoke it against an immutable save snapshot, parse standard output, and continue without save-derived features if the executable is unavailable. This model works for dashboards, administration tools, backup auditors, data exporters, and monitoring systems written in any language. [Palworld Live Map](https://github.com/LukeHollandDev/palworld-live-map) is one example.
-
-The process exits with status `0` on success, `1` for save decoding, projection matching, or resolve failures, and `2` for invalid command-line use or an invalid projection document. A `--resolve` run writes nothing to standard output until the join has succeeded, so a failed resolve does not leave a partial document behind.
-
-## Save handling
-
-The decoder only performs read operations. When reading saves from a running server, create a separate immutable snapshot first so the game cannot change the file during decoding. Save files, expanded JSON, projected JSON, resolved documents, and matching diagnostics can contain private player information and should not be committed to a public repository. `--resolve` output is the most concentrated form of it: names, account identifiers, coordinates and progression in one document per player.
-
-## Supported formats
-
-This reader targets Palworld 1.X, which writes exactly one container form:
-
-- `PlM` type `0x31`, covering the Mermaid subset used by tested Palworld saves
-- GVAS save-game version 3 and custom-version format 3
-
-The Mermaid decoder supports the raw, memset, mode-1 LZ, raw/RLE entropy, and newer Huffman forms found in tested saves. Unsupported Oodle modes are rejected rather than treated as valid.
-
-Nothing else is read. The pre-1.0 `PlZ` zlib containers and the optional 12-byte CNK prefix added by some external save tools are refused with an explicit error rather than decoded on a guess. The project does not encode, recompress, repair, or modify saves.
+The executable and its JSON formats are the supported compatibility boundary.
+All Go packages are under `internal/` and are implementation details rather
+than an importable API.
 
 ## Development
 
-The Makefile contains the small set of commands used locally and in CI:
-
-```sh
-make build    # build bin/palworld-save-reader for the current platform
+```bash
+make build    # build bin/palworld-save-reader
 make test     # run the test suite
-make ci       # check formatting, run go vet, and run race-enabled tests
-make dist     # build all supported release executables under dist/
+make ci       # check formatting, vet, and run race-enabled tests
+make dist     # build release executables under dist/
 make clean    # remove bin/ and dist/
 ```
 
-Optional integration tests can run against private save fixtures without adding them to the repository:
+Integration tests can use private fixtures without adding them to the
+repository:
 
-```sh
+```bash
 PALWORLD_SAVE_FIXTURES=/path/to/fixtures go test ./...
 ```
 
-The fixture directory must contain `Level.sav`, `LevelMeta.sav`, and both normal and `_dps.sav` files under `Players/`; [`internal/savefixtures`](internal/savefixtures) validates that layout so a partly populated directory fails instead of quietly reducing coverage. Real saves, player names, account identifiers, projected output, and private test data must remain outside the repository.
+The fixture directory must contain `Level.sav`, `LevelMeta.sav`, and normal and
+`_dps.sav` files under `Players/`.
 
-## License and provenance
+## License
 
-This repository is distributed under **GPL-3.0-or-later**. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Palworld Save Reader is licensed under **GPL-3.0-or-later**. See
+[LICENSE](LICENSE) and [NOTICE](NOTICE) for the licence and upstream
+attributions.
 
-The Mermaid-compatible decoder is a Go reimplementation based on [Powzix's `ooz`](https://github.com/powzix/ooz), via the GPL-labelled [`palsav` package in PalworldSaveTools](https://github.com/deafdudecomputers/PalworldSaveTools/tree/f35b4d740259a7a75b11cccf2b7c35f928c1ab77/src/palsav). The original `ooz` repository describes itself as open source but does not include an explicit license file.
-
-Parts of the container and GVAS property reader were adapted from [Palhelm's Apache-2.0 save package](https://github.com/8tp/palhelm/tree/e099e8afe4823d6cf6b371e5e3938955e5a1becd/backend/internal/sav). The complete executable is distributed as a GPL-3.0-or-later work.
-
-The standalone executable and JSON interface provide a process boundary for consumers that do not import this repository's Go packages.
-
-This is an unofficial compatible reader. It bundles no proprietary Oodle code and is not affiliated with or endorsed by Epic Games, RAD Game Tools, or Pocketpair.
+This is an independent, fan-made project. It bundles no proprietary Oodle code
+and is not affiliated with or endorsed by Epic Games, RAD Game Tools, or
+Pocketpair.

@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Luke Holland
 //
 // Ported to Go and substantially modified on 2026-07-23 from the ooz decoder
-// in a GPL-labelled PalworldSaveTools package. See NOTICE for exact provenance
-// and the unresolved original upstream grant.
+// in a GPL-3.0-or-later PalworldSaveTools package. The exact upstream source
+// file also carries a GPL-3.0-or-later notice; see NOTICE for the revisions.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package mermaid

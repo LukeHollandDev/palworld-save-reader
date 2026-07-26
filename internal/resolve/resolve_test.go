@@ -292,6 +292,29 @@ func TestResolvePlayersJoinsBothHalves(t *testing.T) {
 	}
 }
 
+func TestRosterOmitsPlayerOwnedCollections(t *testing.T) {
+	resolver := openTestResolver(t)
+	var roster []*Roster
+	if err := resolver.Roster(func(player *Roster) error {
+		roster = append(roster, player)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(roster) != 2 {
+		t.Fatalf("roster entries = %d, want 2", len(roster))
+	}
+	if roster[0].PlayerUID != id(oneUID) || roster[0].Character == nil || roster[0].Character.Nickname != "Alpha" || roster[0].Character.Level != 46 {
+		t.Errorf("first roster entry = %#v", roster[0])
+	}
+	if roster[0].Guild == nil || roster[0].Guild.ID != id(90) {
+		t.Errorf("first roster guild = %#v", roster[0].Guild)
+	}
+	if roster[1].PlayerUID != id(twoUID) || roster[1].Character == nil || roster[1].Character.Nickname != "Beta" || roster[1].Character.Level != 3 {
+		t.Errorf("second roster entry = %#v", roster[1])
+	}
+}
+
 // TestResolveReportsUnresolvedJoins is the other half of the contract: a join that
 // found nothing is named rather than left as an absent field, because "no pals"
 // and "the pal container is missing" are otherwise indistinguishable.

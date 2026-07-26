@@ -3,3 +3,9 @@
 *.sav
 *.sav.json
 /dist/
+/output/
+coverage.out
+*.coverprofile
+*.cpu.pprof
+*.mem.pprof
+*.test

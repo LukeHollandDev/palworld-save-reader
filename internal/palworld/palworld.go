@@ -33,16 +33,6 @@ func LoadWithOptions(path string, options savefile.Options) (*savefile.Save, err
 	return savefile.Open(path, withTypeHints(options))
 }
 
-// Read is Load for a save already held in memory.
-func Read(data []byte) (*savefile.Save, error) {
-	return ReadWithOptions(data, savefile.Options{})
-}
-
-// ReadWithOptions is Read with explicit limits and additional type hints.
-func ReadWithOptions(data []byte, options savefile.Options) (*savefile.Save, error) {
-	return savefile.Read(data, withTypeHints(options))
-}
-
 // TypeHints returns Palworld's path-to-struct table. The result is a copy, so a
 // caller may adjust it and pass it back through savefile.Options.
 func TypeHints() map[string]string {

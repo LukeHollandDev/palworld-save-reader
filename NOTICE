@@ -9,9 +9,10 @@ deafdudecomputers/PalworldSaveTools at commit:
     f35b4d740259a7a75b11cccf2b7c35f928c1ab77
     https://github.com/deafdudecomputers/PalworldSaveTools/tree/f35b4d740259a7a75b11cccf2b7c35f928c1ab77
 
-That downstream PalworldSaveTools package declares GPL-3.0-or-later. The
-original Powzix ooz repository describes itself as open source but does not
-include an explicit license file.
+The pinned PalworldSaveTools copy and the exact upstream `kraken.cpp` source
+carry GPL-3.0-or-later notices. Powzix's repository has no repository-level
+license file, so this notice records the per-file grant rather than implying a
+broader repository licence.
 
 The Palworld schema hints in internal/palworld/hints.go were adapted from that
 same PalworldSaveTools revision.

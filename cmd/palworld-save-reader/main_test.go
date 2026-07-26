@@ -36,6 +36,29 @@ func TestRunListsPresetsAsJSON(t *testing.T) {
 	}
 }
 
+func TestRunListsResolverCapabilities(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if status := run([]string{"--list-resolvers"}, &stdout, &stderr); status != 0 {
+		t.Fatalf("status = %d, stderr = %q", status, stderr.String())
+	}
+	var resolvers []string
+	if err := json.Unmarshal(stdout.Bytes(), &resolvers); err != nil {
+		t.Fatalf("stdout is not resolver JSON: %v\n%s", err, stdout.String())
+	}
+	if strings.Join(resolvers, ",") != "guild,guilds,player,players,roster,world" {
+		t.Errorf("resolvers = %q", resolvers)
+	}
+}
+
+func TestRunHelpAndVersionSucceed(t *testing.T) {
+	for _, arguments := range [][]string{{"--help"}, {"--version"}} {
+		var stdout, stderr bytes.Buffer
+		if status := run(arguments, &stdout, &stderr); status != 0 {
+			t.Fatalf("run(%q) status = %d, stderr = %q", arguments, status, stderr.String())
+		}
+	}
+}
+
 func TestRunInvalidProjectionUsesStatusTwo(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "invalid.json")
 	if err := os.WriteFile(path, []byte(`{"projectionVersion":1}`), 0o600); err != nil {

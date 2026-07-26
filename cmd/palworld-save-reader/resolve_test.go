@@ -133,7 +133,7 @@ func TestRunValidatesResolveFlags(t *testing.T) {
 		{
 			name:      "unknown kind",
 			arguments: []string{"--resolve", "base", "--saves", "dir"},
-			want:      "guild|guilds|player|players|world",
+			want:      "guild|guilds|player|players|roster|world",
 		},
 		{
 			name:      "no directory",

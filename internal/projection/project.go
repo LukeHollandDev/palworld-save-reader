@@ -4,7 +4,6 @@
 package projection
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -100,12 +99,6 @@ func (err *ResolutionError) Error() string {
 		return "projection " + err.Kind + ": " + err.Message
 	}
 	return fmt.Sprintf("projection %s at %s: %s", err.Kind, err.Path, err.Message)
-}
-
-// IsResolutionError reports whether err came from projection matching.
-func IsResolutionError(err error) bool {
-	var target *ResolutionError
-	return errors.As(err, &target)
 }
 
 type evaluation struct {

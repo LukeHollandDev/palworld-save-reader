@@ -114,9 +114,6 @@ func Open(set Set, options Options) (*Resolver, error) {
 	return resolver, nil
 }
 
-// Set reports the files this resolver was opened over.
-func (r *Resolver) Set() Set { return r.set }
-
 func (r *Resolver) warn(format string, arguments ...any) {
 	r.warnings = append(r.warnings, fmt.Sprintf(format, arguments...))
 }

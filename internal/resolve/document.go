@@ -23,6 +23,17 @@ import (
 // "does a player's guild have a name" needs a number to branch on.
 const Version = 2
 
+// Roster is the compact player identity document used by integrations that do
+// not need inventories or owned Pals. It deliberately shares the stable player
+// and guild shapes with Player while avoiding the expensive collection passes
+// required to populate a complete Player document.
+type Roster struct {
+	PlayerUID gvas.GUID  `json:"playerUId"`
+	Character *Character `json:"character,omitempty"`
+	Guild     *GuildRef  `json:"guild,omitempty"`
+	Warnings  []string   `json:"warnings,omitempty"`
+}
+
 // Player is one resolved player: their own save joined to the world save.
 //
 // The split matters when reading a result, so the fields are grouped by where

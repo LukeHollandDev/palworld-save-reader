@@ -45,12 +45,6 @@ const (
 	// characterGroupIDOffset is where GroupID starts within Trailer. The four
 	// bytes before it are zero in every fixture blob.
 	characterGroupIDOffset = 4
-	// characterTrailerBytes is the trailer width observed in every one of the
-	// 2,259 fixture blobs: four zero bytes, the group id, four more zero bytes.
-	// It is documentation rather than a requirement -- DecodeCharacter accepts
-	// any width, because a game update that extends the framing should still
-	// yield a readable character.
-	characterTrailerBytes = 24
 )
 
 // Parameters returns the PalIndividualCharacterSaveParameter properties: the

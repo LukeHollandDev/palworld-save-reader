@@ -2,15 +2,15 @@
 // Copyright (C) 2026 Luke Holland
 //
 // Ported to Go and substantially modified on 2026-07-23 from the ooz decoder
-// in a GPL-labelled PalworldSaveTools package. See NOTICE for exact provenance
-// and the unresolved original upstream grant.
+// in a GPL-3.0-or-later PalworldSaveTools package. The exact upstream source
+// file also carries a GPL-3.0-or-later notice; see NOTICE for the revisions.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package mermaid decodes Oodle Mermaid-compressed buffers.
 //
 // It is a subpackage of savefile rather than part of it because it carries
 // different provenance and copyright from the container code around it: it is a
-// port of Powzix's ooz decoder rather than original or Palhelm-derived work.
+// port of Powzix's ooz decoder rather than the container code around it.
 // See the repository NOTICE for the exact upstream revisions.
 //
 // Decompress is the only entry point, and nothing outside savefile uses it.
@@ -312,7 +312,7 @@ func decodeMermaidFarOffsets(src []byte, count int, outputOffset int64) ([]uint3
 			at++
 		}
 		if int64(value) > outputOffset {
-			return nil, 0, fmt.Errorf("Mermaid far offset %d exceeds history %d", value, outputOffset)
+			return nil, 0, fmt.Errorf("mermaid far offset %d exceeds history %d", value, outputOffset)
 		}
 		values[i] = value
 	}
@@ -331,7 +331,7 @@ func processMermaidLZ(mode int, dst []byte, outputAt, outputSize int, table *mer
 			commandStart, commandEnd = table.cmdSplit, len(table.commands)
 		}
 		if iteration > 1 {
-			return fmt.Errorf("Mermaid chunk has more than two subchunks")
+			return fmt.Errorf("mermaid chunk has more than two subchunks")
 		}
 		if err := processMermaidMode1(
 			dst,
@@ -348,13 +348,13 @@ func processMermaidLZ(mode int, dst []byte, outputAt, outputSize int, table *mer
 		produced += size
 	}
 	if table.nearAt != len(table.near) {
-		return fmt.Errorf("Mermaid near-offset stream consumed %d/%d values", table.nearAt, len(table.near))
+		return fmt.Errorf("mermaid near-offset stream consumed %d/%d values", table.nearAt, len(table.near))
 	}
 	if table.lengthAt != len(table.lengths) {
-		return fmt.Errorf("Mermaid length stream consumed %d/%d bytes", table.lengthAt, len(table.lengths))
+		return fmt.Errorf("mermaid length stream consumed %d/%d bytes", table.lengthAt, len(table.lengths))
 	}
 	if table.literalAt != len(table.literals) {
-		return fmt.Errorf("Mermaid literal stream consumed %d/%d bytes", table.literalAt, len(table.literals))
+		return fmt.Errorf("mermaid literal stream consumed %d/%d bytes", table.literalAt, len(table.literals))
 	}
 	return nil
 }
@@ -490,7 +490,7 @@ func processMermaidMode1(
 		return err
 	}
 	if farAt != len(far) {
-		return fmt.Errorf("Mermaid far-offset stream consumed %d/%d values", farAt, len(far))
+		return fmt.Errorf("mermaid far-offset stream consumed %d/%d values", farAt, len(far))
 	}
 	return nil
 }

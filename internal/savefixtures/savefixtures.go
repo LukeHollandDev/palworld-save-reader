@@ -61,12 +61,6 @@ func NormalPlayerSaves(tb testing.TB, root string) []string {
 	return playerSaves(tb, root, false)
 }
 
-// DPSPlayerSaves returns the *_dps.sav damage-log saves under Players/.
-func DPSPlayerSaves(tb testing.TB, root string) []string {
-	tb.Helper()
-	return playerSaves(tb, root, true)
-}
-
 // AllSaves returns every fixture save: the two world files and every player
 // file, in a stable order.
 func AllSaves(tb testing.TB, root string) []string {

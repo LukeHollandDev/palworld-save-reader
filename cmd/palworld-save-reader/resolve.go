@@ -20,6 +20,7 @@ import (
 const (
 	resolvePlayer  = "player"
 	resolvePlayers = "players"
+	resolveRoster  = "roster"
 	resolveGuild   = "guild"
 	resolveGuilds  = "guilds"
 	resolveWorld   = "world"
@@ -29,6 +30,7 @@ const (
 var resolveKinds = map[string]bool{
 	resolvePlayer:  true,
 	resolvePlayers: false,
+	resolveRoster:  false,
 	resolveGuild:   true,
 	resolveGuilds:  false,
 	resolveWorld:   false,
@@ -73,12 +75,18 @@ func runResolveMode(stdout, stderr io.Writer, kind, id, directory string, positi
 
 // resolveKindNames lists the kinds for a usage message.
 func resolveKindNames() string {
+	return strings.Join(resolverKinds(), "|")
+}
+
+// resolverKinds returns the supported resolver names in a stable order for
+// both CLI diagnostics and machine-readable capability probing.
+func resolverKinds() []string {
 	names := make([]string, 0, len(resolveKinds))
 	for name := range resolveKinds {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	return strings.Join(names, "|")
+	return names
 }
 
 // resolveEnvelope wraps a single resolved document. The version is the shape's,
@@ -127,6 +135,10 @@ func runResolve(stdout io.Writer, kind string, id gvas.GUID, directory string) e
 	case resolvePlayers:
 		return writeResolvedArray(stdout, resolvePlayers, func(emit func(any) error) error {
 			return resolver.Players(func(player *resolve.Player) error { return emit(player) })
+		})
+	case resolveRoster:
+		return writeResolvedArray(stdout, resolveRoster, func(emit func(any) error) error {
+			return resolver.Roster(func(player *resolve.Roster) error { return emit(player) })
 		})
 	case resolveGuild:
 		guild, err := resolver.Guild(id)

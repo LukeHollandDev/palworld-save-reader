@@ -77,11 +77,6 @@ func (r *archiveReader) take(n int) ([]byte, error) {
 	return value, nil
 }
 
-func (r *archiveReader) skip(n int) error {
-	_, err := r.take(n)
-	return err
-}
-
 func (r *archiveReader) u8() (uint8, error) {
 	value, err := r.take(1)
 	if err != nil {

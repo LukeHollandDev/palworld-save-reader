@@ -16,14 +16,20 @@ import (
 	"github.com/LukeHollandDev/palworld-save-reader/internal/projection"
 )
 
+// version is set by release builds with -ldflags. Source builds deliberately
+// identify themselves as development builds rather than pretending to be a tag.
+var version = "dev"
+
 const usageText = `usage:
   palworld-save-reader --full [--decode-raw] FILE
   palworld-save-reader --schema PROJECTION.json [--allow-partial] [--explain] FILE
   palworld-save-reader --preset NAME [--allow-partial] [--explain] FILE
   palworld-save-reader --resolve player --id UID --saves DIR
   palworld-save-reader --resolve guild --id GROUPID --saves DIR
-  palworld-save-reader --resolve players|guilds|world --saves DIR
+  palworld-save-reader --resolve players|roster|guilds|world --saves DIR
   palworld-save-reader --list-presets
+  palworld-save-reader --list-resolvers
+  palworld-save-reader --version
 `
 
 func main() {
@@ -40,6 +46,8 @@ func run(arguments []string, stdout, stderr io.Writer) int {
 	schemaPath := flags.String("schema", "", "apply a projection document")
 	presetName := flags.String("preset", "", "apply a bundled projection preset")
 	listPresets := flags.Bool("list-presets", false, "list bundled projection presets")
+	listResolvers := flags.Bool("list-resolvers", false, "list supported --resolve values")
+	showVersion := flags.Bool("version", false, "print the reader version")
 	allowPartial := flags.Bool("allow-partial", false, "emit null for unresolved projected fields")
 	explain := flags.Bool("explain", false, "write JSON matching diagnostics to standard error")
 	resolveKind := flags.String("resolve", "", "join a save directory into one document: "+resolveKindNames())
@@ -47,13 +55,16 @@ func run(arguments []string, stdout, stderr io.Writer) int {
 	savesDir := flags.String("saves", "", "with --resolve, the save directory holding Level.sav and Players/")
 
 	if err := flags.Parse(arguments); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
 		return 2
 	}
 
 	modeCount := boolInt(*full) + boolInt(*schemaPath != "") + boolInt(*presetName != "") +
-		boolInt(*listPresets) + boolInt(*resolveKind != "")
+		boolInt(*listPresets) + boolInt(*listResolvers) + boolInt(*showVersion) + boolInt(*resolveKind != "")
 	if modeCount != 1 {
-		return usageError(stderr, "exactly one of --full, --schema, --preset, --resolve, or --list-presets is required")
+		return usageError(stderr, "exactly one of --full, --schema, --preset, --resolve, --list-presets, --list-resolvers, or --version is required")
 	}
 	if *decodeRaw && !*full {
 		return usageError(stderr, "--decode-raw is only valid with --full")
@@ -73,6 +84,25 @@ func run(arguments []string, stdout, stderr io.Writer) int {
 			return runtimeError(stderr, err)
 		}
 		if err := writeJSON(stdout, presets); err != nil {
+			return runtimeError(stderr, err)
+		}
+		return 0
+	}
+	if *listResolvers {
+		if flags.NArg() != 0 || *allowPartial || *explain {
+			return usageError(stderr, "--list-resolvers does not accept an input file or projection options")
+		}
+		if err := writeJSON(stdout, resolverKinds()); err != nil {
+			return runtimeError(stderr, err)
+		}
+		return 0
+	}
+	if *showVersion {
+		if flags.NArg() != 0 || *allowPartial || *explain {
+			return usageError(stderr, "--version does not accept an input file or projection options")
+		}
+		_, err := fmt.Fprintf(stdout, "palworld-save-reader %s\n", version)
+		if err != nil {
 			return runtimeError(stderr, err)
 		}
 		return 0
