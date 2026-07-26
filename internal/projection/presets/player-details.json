@@ -1,0 +1,39 @@
+{
+  "$schema": "../../../projection-v1.schema.json",
+  "projectionVersion": 1,
+  "name": "player-details",
+  "gameVersion": "1.0.1.100619",
+  "saveType": "player.sav",
+  "shape": {
+    "PlayerUId": "",
+    "LastTransform": {
+      "Translation": {
+        "X": 0,
+        "Y": 0,
+        "Z": 0
+      },
+      "Rotation": {
+        "X": 0,
+        "Y": 0,
+        "Z": 0,
+        "W": 0
+      }
+    },
+    "RecordData": {
+      "TribeCaptureCount": 0,
+      "PalCaptureCount": [
+        {
+          "Key": "",
+          "Value": 0
+        }
+      ],
+      "PaldeckUnlockFlag": [
+        {
+          "Key": "",
+          "Value": false
+        }
+      ]
+    },
+    "LastOnlineDateTime": 0
+  }
+}

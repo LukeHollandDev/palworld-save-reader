@@ -1,0 +1,17 @@
+{
+  "$schema": "../../../projection-v1.schema.json",
+  "projectionVersion": 1,
+  "name": "player-progression",
+  "gameVersion": "1.0.1.100619",
+  "saveType": "player.sav",
+  "shape": {
+    "TechnologyPoint": 0,
+    "UnlockedRecipeTechnologyNames": [""],
+    "CompletedQuestArray_FullRelease": [""],
+    "RecordData": {
+      "CraftItemCount": [
+        { "Key": "", "Value": 0 }
+      ]
+    }
+  }
+}

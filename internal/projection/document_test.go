@@ -7,12 +7,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 const validDocument = `{
-  "$schema": "projection.schema.json",
+  "$schema": "projection-v1.schema.json",
   "projectionVersion": 1,
   "name": "player-fields",
   "gameVersion": "1.0.0",
@@ -77,8 +79,11 @@ func TestParseRejectsInvalidDocuments(t *testing.T) {
 	}
 }
 
+// TestProjectionSchemaIsValidJSON checks the published format contract, which
+// lives at the repository root and is deliberately not embedded: nothing in the
+// executable reads it, because Parse is the authoritative validator.
 func TestProjectionSchemaIsValidJSON(t *testing.T) {
-	schema, err := Schema()
+	schema, err := os.ReadFile(filepath.Join("..", "..", "projection-v1.schema.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,18 +120,30 @@ func TestEmbeddedPresetCatalog(t *testing.T) {
 	}
 	seen := make(map[string]struct{})
 	for _, preset := range presets {
-		key := preset.GameVersion + "\x00" + preset.Name
-		if _, exists := seen[key]; exists {
-			t.Fatalf("duplicate preset %#v", preset)
+		if _, exists := seen[preset.Name]; exists {
+			t.Fatalf("duplicate preset name %q", preset.Name)
 		}
-		seen[key] = struct{}{}
-		document, err := ResolvePreset(preset.Name, preset.GameVersion)
+		seen[preset.Name] = struct{}{}
+		document, err := ResolvePreset(preset.Name)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if document.SaveType != preset.SaveType {
 			t.Fatalf("resolved save type = %q, want %q", document.SaveType, preset.SaveType)
 		}
+		// gameVersion is provenance the catalog reports but never matches on.
+		if preset.GameVersion == "" {
+			t.Fatalf("preset %q does not record a game version", preset.Name)
+		}
+	}
+	if len(presets) == 0 {
+		t.Fatal("no presets are embedded")
+	}
+}
+
+func TestResolvePresetRejectsUnknownName(t *testing.T) {
+	if _, err := ResolvePreset("not-a-bundled-preset"); err == nil {
+		t.Fatal("ResolvePreset accepted an unknown preset name")
 	}
 }
 

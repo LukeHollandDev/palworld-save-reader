@@ -1,0 +1,15 @@
+{
+  "$schema": "../../../projection-v1.schema.json",
+  "projectionVersion": 1,
+  "name": "world-meta",
+  "gameVersion": "1.0.1.100619",
+  "saveType": "LevelMeta.sav",
+  "shape": {
+    "Version": 0,
+    "Timestamp": 0,
+    "SaveData": {
+      "WorldName": "",
+      "InGameDay": 0
+    }
+  }
+}

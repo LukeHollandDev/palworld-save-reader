@@ -9,7 +9,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/LukeHollandDev/palworld-save-reader/internal/palsav"
+	"github.com/LukeHollandDev/palworld-save-reader/internal/gvas"
 )
 
 // ApplyOptions controls projection resolution.
@@ -122,7 +122,7 @@ type candidate struct {
 }
 
 // Apply resolves document against one decoded save and returns ordered output.
-func Apply(properties palsav.Properties, document *Document, options ApplyOptions) (*Output, []Diagnostic, error) {
+func Apply(properties gvas.Properties, document *Document, options ApplyOptions) (*Output, []Diagnostic, error) {
 	if document == nil || document.Shape == nil {
 		return nil, nil, invalid("$", "nil document or shape")
 	}

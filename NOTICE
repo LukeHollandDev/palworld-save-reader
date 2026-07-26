@@ -1,7 +1,7 @@
 Palworld save reader
 Copyright (C) 2026 Luke Holland
 
-The Mermaid-compatible decompressor in internal/palsav/oodle (entropy.go and
+The Mermaid-compatible decompressor in internal/savefile/mermaid (entropy.go and
 mermaid.go) was ported and substantially modified for Go on 2026-07-23 from
 Powzix's ooz implementation, Copyright (C) 2016 Powzix, as distributed by
 deafdudecomputers/PalworldSaveTools at commit:
@@ -13,11 +13,11 @@ That downstream PalworldSaveTools package declares GPL-3.0-or-later. The
 original Powzix ooz repository describes itself as open source but does not
 include an explicit license file.
 
-The Palworld schema hints in palworld_hints.go were adapted from that same
-PalworldSaveTools revision.
+The Palworld schema hints in internal/palworld/hints.go were adapted from that
+same PalworldSaveTools revision.
 
-Portions of the container and GVAS/property reader were adapted from Palhelm's
-backend/internal/sav package at commit:
+Portions of internal/savefile (container) and internal/gvas (property reader)
+were adapted from Palhelm's backend/internal/sav package at commit:
 
     e099e8afe4823d6cf6b371e5e3938955e5a1becd
     https://github.com/8tp/palhelm/tree/e099e8afe4823d6cf6b371e5e3938955e5a1becd/backend/internal/sav

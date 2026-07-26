@@ -11,71 +11,67 @@ import (
 	"strings"
 )
 
-//go:embed assets
-var assets embed.FS
+// presetFS holds the bundled projection documents so --preset and
+// --list-presets resolve without a checkout or a network. The pattern selects
+// only .json, keeping the directory's README out of the executable.
+//
+//go:embed presets/*.json
+var presetFS embed.FS
 
-// Preset describes one bundled, versioned projection.
+const presetsRoot = "presets"
+
+// Preset describes one bundled projection. GameVersion records the Palworld
+// build the document was verified against; it is provenance reported to the
+// caller, not part of the preset's identity.
 type Preset struct {
 	Name        string `json:"name"`
 	GameVersion string `json:"gameVersion"`
 	SaveType    string `json:"saveType"`
 }
 
-type embeddedPreset struct {
-	document *Document
-}
-
 var presetCatalog, presetCatalogError = loadPresetCatalog()
 
-// Presets returns the bundled projections in stable version/name order.
+// Presets returns the bundled projections in stable name order.
 func Presets() ([]Preset, error) {
 	if presetCatalogError != nil {
 		return nil, presetCatalogError
 	}
 	output := make([]Preset, 0, len(presetCatalog))
-	for _, item := range presetCatalog {
+	for _, document := range presetCatalog {
 		output = append(output, Preset{
-			Name:        item.document.Name,
-			GameVersion: item.document.GameVersion,
-			SaveType:    item.document.SaveType,
+			Name:        document.Name,
+			GameVersion: document.GameVersion,
+			SaveType:    document.SaveType,
 		})
 	}
 	sort.Slice(output, func(left, right int) bool {
-		if output[left].GameVersion != output[right].GameVersion {
-			return output[left].GameVersion < output[right].GameVersion
-		}
 		return output[left].Name < output[right].Name
 	})
 	return output, nil
 }
 
-// ResolvePreset finds an exact name and game-version pair.
-func ResolvePreset(name, gameVersion string) (*Document, error) {
+// ResolvePreset finds a bundled projection by its exact name.
+func ResolvePreset(name string) (*Document, error) {
 	if presetCatalogError != nil {
 		return nil, presetCatalogError
 	}
-	item, ok := presetCatalog[presetKey(name, gameVersion)]
+	document, ok := presetCatalog[name]
 	if !ok {
-		return nil, fmt.Errorf("projection: preset %q is not bundled for Palworld %q", name, gameVersion)
+		return nil, fmt.Errorf("projection: preset %q is not bundled", name)
 	}
-	return item.document, nil
+	return document, nil
 }
 
-// Schema returns the bundled projection format JSON Schema.
-func Schema() ([]byte, error) {
-	return assets.ReadFile("assets/projection.schema.json")
-}
-
-func loadPresetCatalog() (map[string]embeddedPreset, error) {
-	catalog := make(map[string]embeddedPreset)
-	err := fs.WalkDir(assets, "assets/palworld", func(path string, entry fs.DirEntry, walkErr error) error {
+func loadPresetCatalog() (map[string]*Document, error) {
+	catalog := make(map[string]*Document)
+	err := fs.WalkDir(presetFS, presetsRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			return nil
 		}
-		data, err := assets.ReadFile(path)
+		data, err := presetFS.ReadFile(path)
 		if err != nil {
 			return err
 		}
@@ -83,23 +79,14 @@ func loadPresetCatalog() (map[string]embeddedPreset, error) {
 		if err != nil {
 			return fmt.Errorf("embedded preset %s: %w", path, err)
 		}
-		key := presetKey(document.Name, document.GameVersion)
-		if _, exists := catalog[key]; exists {
-			return fmt.Errorf(
-				"projection: duplicate embedded preset %q for Palworld %q",
-				document.Name,
-				document.GameVersion,
-			)
+		if _, exists := catalog[document.Name]; exists {
+			return fmt.Errorf("projection: duplicate embedded preset %q", document.Name)
 		}
-		catalog[key] = embeddedPreset{document: document}
+		catalog[document.Name] = document
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return catalog, nil
-}
-
-func presetKey(name, gameVersion string) string {
-	return gameVersion + "\x00" + name
 }

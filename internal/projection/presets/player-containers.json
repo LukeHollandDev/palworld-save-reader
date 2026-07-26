@@ -1,0 +1,19 @@
+{
+  "$schema": "../../../projection-v1.schema.json",
+  "projectionVersion": 1,
+  "name": "player-containers",
+  "gameVersion": "1.0.1.100619",
+  "saveType": "player.sav",
+  "shape": {
+    "InventoryInfo": {
+      "CommonContainerId": { "ID": "" },
+      "DropSlotContainerId": { "ID": "" },
+      "EssentialContainerId": { "ID": "" },
+      "WeaponLoadOutContainerId": { "ID": "" },
+      "PlayerEquipArmorContainerId": { "ID": "" },
+      "FoodEquipContainerId": { "ID": "" }
+    },
+    "PalStorageContainerId": { "ID": "" },
+    "OtomoCharacterContainerId": { "ID": "" }
+  }
+}

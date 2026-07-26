@@ -43,19 +43,19 @@ jobs:
         include:
           - goos: linux
             goarch: amd64
-            artifact: savedecode-linux-amd64
+            artifact: palworld-save-reader-linux-amd64
           - goos: linux
             goarch: arm64
-            artifact: savedecode-linux-arm64
+            artifact: palworld-save-reader-linux-arm64
           - goos: darwin
             goarch: amd64
-            artifact: savedecode-darwin-amd64
+            artifact: palworld-save-reader-darwin-amd64
           - goos: darwin
             goarch: arm64
-            artifact: savedecode-darwin-arm64
+            artifact: palworld-save-reader-darwin-arm64
           - goos: windows
             goarch: amd64
-            artifact: savedecode-windows-amd64.exe
+            artifact: palworld-save-reader-windows-amd64.exe
 
     steps:
       - name: Check out repository

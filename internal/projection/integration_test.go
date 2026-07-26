@@ -4,48 +4,71 @@
 package projection
 
 import (
-	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
-	"github.com/LukeHollandDev/palworld-save-reader/internal/palsav"
+	"github.com/LukeHollandDev/palworld-save-reader/internal/palworld"
+	"github.com/LukeHollandDev/palworld-save-reader/internal/savefixtures"
 )
 
-func TestPlayerDetailsPresetAgainstPrivateFixtures(t *testing.T) {
-	root := os.Getenv("PALWORLD_SAVE_FIXTURES")
-	if root == "" {
-		t.Skip("set PALWORLD_SAVE_FIXTURES to a directory containing external saves")
-	}
-	paths, err := filepath.Glob(filepath.Join(root, "Players", "*.sav"))
+// TestBundledPresetsAgainstPrivateFixtures applies every bundled preset to
+// every private fixture save of its declared type, in strict mode. Strict is
+// the point: Palworld omits properties that still hold their default value, so
+// a preset that requests a field only a played-in save carries will pass on one
+// fixture and fail on the next. A preset must request fields present in all of
+// them.
+func TestBundledPresetsAgainstPrivateFixtures(t *testing.T) {
+	root := savefixtures.Root(t)
+	presets, err := Presets()
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := ResolvePreset("player-details", "1.0.1.100619")
-	if err != nil {
-		t.Fatal(err)
+	if len(presets) == 0 {
+		t.Fatal("no presets are bundled")
 	}
-	tested := 0
-	for _, path := range paths {
-		if strings.HasSuffix(path, "_dps.sav") {
-			continue
-		}
-		tested++
-		t.Run(filepath.Base(path), func(t *testing.T) {
-			save, err := palsav.Load(path)
+	for _, preset := range presets {
+		t.Run(preset.Name, func(t *testing.T) {
+			document, err := ResolvePreset(preset.Name)
 			if err != nil {
 				t.Fatal(err)
 			}
-			output, diagnostics, err := Apply(save.Properties, document, ApplyOptions{})
-			if err != nil {
-				t.Fatalf("Apply: %v; diagnostics: %#v", err, diagnostics)
+			paths := fixturesForSaveType(t, root, preset.SaveType)
+			if len(paths) == 0 {
+				t.Fatalf("fixture directory has no %s save to exercise", preset.SaveType)
 			}
-			if output == nil {
-				t.Fatal("Apply returned nil output")
+			for _, path := range paths {
+				t.Run(filepath.Base(path), func(t *testing.T) {
+					save, err := palworld.Load(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					output, diagnostics, err := Apply(save.Properties, document, ApplyOptions{})
+					if err != nil {
+						t.Fatalf("Apply: %v; diagnostics: %#v", err, diagnostics)
+					}
+					if output == nil {
+						t.Fatal("Apply returned nil output")
+					}
+				})
 			}
 		})
 	}
-	if tested == 0 {
-		t.Fatal("fixture directory contains no non-DPS player saves")
+}
+
+// fixturesForSaveType maps a preset's declared saveType onto fixture files. A
+// preset naming a type with no mapping fails loudly rather than silently going
+// unexercised.
+func fixturesForSaveType(t *testing.T, root, saveType string) []string {
+	t.Helper()
+	switch saveType {
+	case "player.sav":
+		// DPS saves live beside player saves but carry a different root
+		// structure, so player presets are not expected to match them.
+		return savefixtures.NormalPlayerSaves(t, root)
+	case "Level.sav", "LevelMeta.sav":
+		return []string{filepath.Join(root, saveType)}
+	default:
+		t.Fatalf("no fixture mapping for save type %q", saveType)
+		return nil
 	}
 }

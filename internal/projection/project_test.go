@@ -9,21 +9,21 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/LukeHollandDev/palworld-save-reader/internal/palsav"
+	"github.com/LukeHollandDev/palworld-save-reader/internal/gvas"
 )
 
 func TestApplyNestedRepeatedProjection(t *testing.T) {
-	properties := palsav.Properties{{
+	properties := gvas.Properties{{
 		Name: "worldSaveData",
-		Value: palsav.StructValue{Type: "World", Value: palsav.Properties{{
+		Value: gvas.StructValue{Type: "World", Value: gvas.Properties{{
 			Name: "Players",
 			Value: []any{
-				palsav.Properties{
+				gvas.Properties{
 					{Name: "NickName", Value: "Ada"},
 					{Name: "Level", Value: int32(42)},
 					{Name: "Ignored", Value: "not projected"},
 				},
-				palsav.Properties{
+				gvas.Properties{
 					{Name: "NickName", Value: "Lin"},
 					{Name: "Level", Value: uint8(7)},
 				},
@@ -56,7 +56,7 @@ func TestApplyNestedRepeatedProjection(t *testing.T) {
 }
 
 func TestApplyStrictAndPartialMissingFields(t *testing.T) {
-	properties := palsav.Properties{
+	properties := gvas.Properties{
 		{Name: "NickName", Value: "Ada"},
 		{Name: "Level", Value: int32(42)},
 	}
@@ -86,7 +86,7 @@ func TestApplyStrictAndPartialMissingFields(t *testing.T) {
 }
 
 func TestApplyRejectsTypeMismatch(t *testing.T) {
-	properties := palsav.Properties{{Name: "Level", Value: "forty-two"}}
+	properties := gvas.Properties{{Name: "Level", Value: "forty-two"}}
 	document := mustParseDocument(t, `{
 		"projectionVersion": 1,
 		"name": "level",
@@ -101,9 +101,9 @@ func TestApplyRejectsTypeMismatch(t *testing.T) {
 }
 
 func TestApplyRejectsAmbiguousCandidates(t *testing.T) {
-	properties := palsav.Properties{
-		{Name: "First", Value: palsav.StructValue{Value: palsav.Properties{{Name: "NickName", Value: "Ada"}}}},
-		{Name: "Second", Value: palsav.StructValue{Value: palsav.Properties{{Name: "NickName", Value: "Lin"}}}},
+	properties := gvas.Properties{
+		{Name: "First", Value: gvas.StructValue{Value: gvas.Properties{{Name: "NickName", Value: "Ada"}}}},
+		{Name: "Second", Value: gvas.StructValue{Value: gvas.Properties{{Name: "NickName", Value: "Lin"}}}},
 	}
 	document := mustParseDocument(t, `{
 		"projectionVersion": 1,
@@ -122,9 +122,9 @@ func TestApplyRejectsAmbiguousCandidates(t *testing.T) {
 }
 
 func TestApplyNullCopiesAnyCompatibleValue(t *testing.T) {
-	properties := palsav.Properties{{
+	properties := gvas.Properties{{
 		Name:  "Position",
-		Value: palsav.Vector{X: 1, Y: 2, Z: 3},
+		Value: gvas.Vector{X: 1, Y: 2, Z: 3},
 	}}
 	document := mustParseDocument(t, `{
 		"projectionVersion": 1,
@@ -185,7 +185,7 @@ func FuzzApplySynthetic(fuzz *testing.F) {
 		if err != nil {
 			t.Skip()
 		}
-		properties := palsav.Properties{{Name: field, Value: value}}
+		properties := gvas.Properties{{Name: field, Value: value}}
 		output, _, err := Apply(properties, document, ApplyOptions{})
 		if err != nil {
 			t.Fatal(err)

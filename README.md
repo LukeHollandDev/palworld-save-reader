@@ -4,17 +4,18 @@
 [![Go version](https://img.shields.io/github/go-mod/go-version/LukeHollandDev/palworld-save-reader)](go.mod)
 [![License](https://img.shields.io/github/license/LukeHollandDev/palworld-save-reader)](LICENSE)
 
-`palworld-save-reader` is a standalone command-line tool for reading one Palworld `.sav` file and writing JSON. It can expand the complete decoded property tree for inspection or apply a caller-provided projection that requests only the serialized fields and structure an application needs.
+`palworld-save-reader` is a standalone command-line tool for reading one Palworld 1.X `.sav` file and writing JSON. It can expand the complete decoded property tree for inspection or apply a caller-provided projection that requests only the serialized fields and structure an application needs.
 
-The decoder is implemented in pure Go and does not require cgo, proprietary Oodle libraries, or third-party Go dependencies. The executable is the supported interface; packages under `internal/` are implementation details and cannot be imported by other projects.
+The decoder is implemented in pure Go and does not require cgo, proprietary Oodle libraries, or third-party Go dependencies. The executable is the supported interface; every package lives under `internal/` and cannot be imported by other projects.
 
 ## Features
 
-- Reads Mermaid-compressed and legacy zlib-compressed Palworld saves
+- Reads the Mermaid-compressed saves written by Palworld 1.X
 - Selects fields with caller-provided, versioned JSON projection documents
 - Preserves the requested JSON keys, nesting, array structure, and key order
 - Rejects missing, incompatible, or ambiguous matches by default
 - Produces a complete expanded property tree for format inspection
+- Decodes item-container `RawData` slots to item identifiers and stack counts
 - Applies bounded input, collection, parser, and projection limits
 - Never writes to or modifies a source save
 - Builds for Linux, macOS, and Windows
@@ -24,7 +25,7 @@ The decoder is implemented in pure Go and does not require cgo, proprietary Oodl
 Go 1.26.5 or later is required when building from source.
 
 ```sh
-go install github.com/LukeHollandDev/palworld-save-reader/cmd/savedecode@latest
+go install github.com/LukeHollandDev/palworld-save-reader/cmd/palworld-save-reader@latest
 ```
 
 Prebuilt executables are also available from successful GitHub Actions runs and published GitHub Releases.
@@ -37,17 +38,17 @@ cd palworld-save-reader
 make build
 ```
 
-The executable is written to `bin/savedecode`.
+The executable is written to `bin/palworld-save-reader`.
 
 ## Usage
 
 Every operation requires an explicit mode:
 
 ```text
-savedecode --full FILE
-savedecode --schema PROJECTION.json [--allow-partial] [--explain] FILE
-savedecode --preset NAME --game-version VERSION [--allow-partial] [--explain] FILE
-savedecode --list-presets
+palworld-save-reader --full [--decode-raw] FILE
+palworld-save-reader --schema PROJECTION.json [--allow-partial] [--explain] FILE
+palworld-save-reader --preset NAME [--allow-partial] [--explain] FILE
+palworld-save-reader --list-presets
 ```
 
 ### Project selected fields
@@ -58,7 +59,7 @@ For example, this projection requests an identifier, last-online value, and posi
 
 ```json
 {
-  "$schema": "./internal/projection/assets/projection.schema.json",
+  "$schema": "https://github.com/LukeHollandDev/palworld-save-reader/raw/main/projection-v1.schema.json",
   "projectionVersion": 1,
   "name": "player-location",
   "gameVersion": "1.0.1.100619",
@@ -80,7 +81,23 @@ For example, this projection requests an identifier, last-online value, and posi
 Apply it to one save:
 
 ```sh
-savedecode --schema player-location.json /path/to/player.sav
+palworld-save-reader --schema player-location.json /path/to/player.sav
+```
+
+The result keeps the requested keys, nesting, and key order, with each placeholder replaced by the matched save value:
+
+```json
+{
+  "PlayerUId": "00000000-0000-0000-0000-000000000000",
+  "LastOnlineDateTime": 639200000000000000,
+  "LastTransform": {
+    "Translation": {
+      "X": -184343.5,
+      "Y": 256561.11,
+      "Z": -1378.54
+    }
+  }
+}
 ```
 
 The matcher searches the decoded save for structures containing the requested field names and compatible nested values. It selects a result only when there is one highest-scoring compatible structure; it never selects a field solely because it has the requested primitive type.
@@ -103,13 +120,13 @@ For matching purposes, an Unreal property list is an object keyed by its seriali
 Use `--explain` to write JSON diagnostics to standard error while keeping projected JSON on standard output:
 
 ```sh
-savedecode --schema player-location.json --explain /path/to/player.sav > player.json
+palworld-save-reader --schema player-location.json --explain /path/to/player.sav > player.json
 ```
 
 Strict matching is the default. `--allow-partial` writes `null` for unresolved or incompatible fields and reports each problem to standard error:
 
 ```sh
-savedecode --schema player-location.json --allow-partial /path/to/player.sav
+palworld-save-reader --schema player-location.json --allow-partial /path/to/player.sav
 ```
 
 Projection version 1 operates on one physical save at a time. It does not join `Level.sav` with files under `Players/`, rename fields, calculate values, aggregate records, sort, or filter; the calling application remains responsible for those operations.
@@ -119,36 +136,109 @@ Projection version 1 operates on one physical save at a time. It does not join `
 Use `--full` to expand one save into a JSON property tree:
 
 ```sh
-savedecode --full /path/to/Level.sav
+palworld-save-reader --full /path/to/Level.sav
 ```
 
 Full mode is useful for discovering serialized field names and researching format changes before writing a projection. Large world saves can produce hundreds of megabytes of JSON and require substantial memory. Output may include player names, identifiers, and other private save content, so review it before sharing.
 
+### Decode `RawData` byte arrays
+
+A world save keeps much of its detail in `RawData` byte arrays. Unreal tags each one as nothing more than an array of bytes, so they are emitted as base64 by default. `--decode-raw` additionally interprets the ones whose layout is known:
+
+```sh
+palworld-save-reader --full --decode-raw /path/to/Level.sav
+```
+
+A recognised blob gains a `decoded` object beside the base64, which is kept so nothing is lost:
+
+```json
+{
+  "innerType": "ByteProperty",
+  "values": "BgAAAAEAAAANAAAARnVyQXJtb3JDb2xkAAAA…",
+  "decoded": {
+    "kind": "itemSlot",
+    "slotIndex": 6,
+    "count": 1,
+    "itemId": "FurArmorCold",
+    "dynamicItemId": "4cf65985-51e4-45c1-9f27-5250ed5c7fcd"
+  }
+}
+```
+
+One layout is decoded so far, the item-container slot at `worldSaveData.ItemContainerSaveData`. Together with `player-containers` it makes a player's inventory readable: that preset returns the container identifiers, and those identifiers key the containers whose slots now carry item names and stack counts.
+
+`dynamicItemId` appears only when the item has a per-instance record in `worldSaveData.DynamicItemSaveData`, which is where durability and similar state lives. A `trailer` field appears when a slot carries bytes that are not decoded yet. A blob that fails to decode reports `decodeError` next to its base64 rather than failing the dump.
+
+The flag is opt-in because it is not free: on a 3.3MB world save it adds about 4% to the JSON and 0.3s. It only applies to `--full`; pairing it with a projection mode is a usage error rather than a silently ignored flag. Every other `RawData` blob — character detail, guilds, base camps, map objects — is still base64.
+
 ### Use bundled presets
 
-Bundled presets are projection documents tested against a private fixture from one exact Palworld version. List the available name, version, and save-type combinations:
+Bundled presets are projection documents tested against a private fixture from one exact Palworld version. List the available names, along with the version each was verified against and the save type it reads:
 
 ```sh
-savedecode --list-presets
+palworld-save-reader --list-presets
 ```
 
-The result is a JSON array. Select a preset with an exact version rather than an implicit latest alias:
+The result is a JSON array. Select a preset by name:
 
 ```sh
-savedecode --preset player-details --game-version 1.0.1.100619 /path/to/player.sav
+palworld-save-reader --preset player-details /path/to/player.sav
 ```
 
-The repository currently includes `player-details` for Palworld `1.0.1.100619`. It extracts raw identifier, position, capture-record, Paldeck, and last-online fields from one player save without calculating summary values. A preset should be added under `internal/projection/assets/palworld/VERSION/` only after it has been exercised against a private save from that version. A preset documents tested compatibility and does not guarantee compatibility with another game release.
+All bundled presets were verified against private fixtures from Palworld `1.0.1.100619`:
+
+| Preset | Save type | Requests |
+| --- | --- | --- |
+| `player-details` | `player.sav` | Identifier, position and facing, capture record, Paldeck flags, last-online time |
+| `player-identity` | `player.sav` | Account and character identifiers, platform, last-online time |
+| `player-containers` | `player.sav` | Inventory, equipment, and pal-storage container identifiers |
+| `player-progression` | `player.sav` | Technology points, unlocked recipes, completed quests, craft counts |
+| `player-quests` | `player.sav` | In-progress quests with their block index and progress counters |
+| `player-exploration` | `player.sav` | Fast-travel, area-discovery, and note flags |
+| `player-appearance` | `player.sav` | Body, head, and hair meshes, character colours, voice |
+| `world-meta` | `LevelMeta.sav` | World name, in-game day, save timestamp and version |
+
+`player-identity` is the one that exposes `IndividualId.InstanceId`, the key that identifies a player's character inside a world save.
+
+`player-progression` reports quests a player has finished; `player-quests` reports the ones still open, which is a separate array carrying per-objective counters.
+
+A preset reads one file, so joining a player to the world is the caller's job. The identifiers each preset returns are the keys for it: against fixtures from `1.0.1.100619`, `IndividualId.InstanceId` matched a `CharacterSaveParameterMap` key, the six `InventoryInfo` container identifiers matched `ItemContainerSaveData` keys, and `PalStorageContainerId` and `OtomoCharacterContainerId` matched `CharacterContainerSaveData` keys — each exactly once. A player save's filename is its `PlayerUId` with the dashes removed. What sits on the far side of those joins is mostly `RawData`, so the join currently locates a record rather than opening it.
+
+Presets request only fields that appear in **every** fixture save of their type. Palworld omits properties still holding their default value, so a field like `OilrigClearCount` exists only in saves whose player has cleared one; requesting it would fail strict matching elsewhere. Put such fields in your own `--schema` document with `--allow-partial`.
+
+A preset's `gameVersion` is provenance, not a selector: it records the build the document was verified against and is reported by `--list-presets`, but it plays no part in choosing a preset and does not guarantee compatibility with another game release. Because a name identifies a preset on its own, two bundled documents must not share one. New presets go in [`internal/projection/presets/`](internal/projection/presets) and are only added after being exercised against a private save from the version they declare.
+
+### Projection does not work on `Level.sav`
+
+Projection normalizes the whole decoded property tree before matching, and a world save exceeds the built-in ceiling of 10,000,000 nodes, so `--schema` and `--preset` fail on `Level.sav` regardless of how small the requested shape is:
+
+```text
+error: projection: decoded tree exceeds 10000000 values
+```
+
+Use `--full` for world saves. `LevelMeta.sav` and files under `Players/` are far smaller and project normally. Note also that a world save keeps most per-character and per-guild detail inside `RawData` byte blobs, so even a working projection would expose only the identifiers and enums stored outside them. `--full --decode-raw` opens the item-container slots; the rest are still base64.
+
+### Fetch the schema over HTTP
+
+[`projection-v1.schema.json`](projection-v1.schema.json) sits at the top level of the repository, so a tool or editor can read the format contract straight from GitHub instead of vendoring a copy:
+
+```text
+https://github.com/LukeHollandDev/palworld-save-reader/raw/main/projection-v1.schema.json
+```
+
+The filename carries the format version deliberately. A document declaring `projectionVersion: 1` must keep validating against the v1 contract, so a future version becomes a new file rather than an edit to this one. Pin a release tag instead of `main` when a build needs a copy that cannot change underneath it.
+
+Nothing in the executable reads the schema — `palworld-save-reader` validates projection documents with its own parser, and the schema exists for editors and external tooling. The preset documents are embedded, and are also readable at [`internal/projection/presets/`](internal/projection/presets) if you want one as a starting point.
 
 ### Use it from another application
 
 The command writes result JSON to standard output and diagnostics to standard error, making it suitable for pipelines and optional external-process integrations:
 
 ```sh
-savedecode --schema wanted.json /path/to/save.sav | jq .
+palworld-save-reader --schema wanted.json /path/to/save.sav | jq .
 ```
 
-An application can discover a configured `savedecode` executable, invoke it against an immutable save snapshot, parse standard output, and continue without save-derived features if the executable is unavailable. This model works for dashboards, administration tools, backup auditors, data exporters, and monitoring systems written in any language. [Palworld Live Map](https://github.com/LukeHollandDev/palworld-live-map) is one example.
+An application can discover a configured `palworld-save-reader` executable, invoke it against an immutable save snapshot, parse standard output, and continue without save-derived features if the executable is unavailable. This model works for dashboards, administration tools, backup auditors, data exporters, and monitoring systems written in any language. [Palworld Live Map](https://github.com/LukeHollandDev/palworld-live-map) is one example.
 
 The process exits with status `0` on success, `1` for save decoding or projection matching failures, and `2` for invalid command-line use or an invalid projection document.
 
@@ -158,20 +248,21 @@ The decoder only performs read operations. When reading saves from a running ser
 
 ## Supported formats
 
+This reader targets Palworld 1.X, which writes exactly one container form:
+
 - `PlM` type `0x31`, covering the Mermaid subset used by tested Palworld saves
-- `PlZ` type `0x31` for single zlib compression
-- `PlZ` type `0x32` for double zlib compression
-- The optional 12-byte CNK prefix used by some save tools
 - GVAS save-game version 3 and custom-version format 3
 
-The Mermaid decoder supports the raw, memset, mode-1 LZ, raw/RLE entropy, and newer Huffman forms found in tested saves. Unsupported Oodle modes are rejected rather than treated as valid. The project does not encode, recompress, repair, or modify saves.
+The Mermaid decoder supports the raw, memset, mode-1 LZ, raw/RLE entropy, and newer Huffman forms found in tested saves. Unsupported Oodle modes are rejected rather than treated as valid.
+
+Nothing else is read. The pre-1.0 `PlZ` zlib containers and the optional 12-byte CNK prefix added by some external save tools are refused with an explicit error rather than decoded on a guess. The project does not encode, recompress, repair, or modify saves.
 
 ## Development
 
 The Makefile contains the small set of commands used locally and in CI:
 
 ```sh
-make build    # build bin/savedecode for the current platform
+make build    # build bin/palworld-save-reader for the current platform
 make test     # run the test suite
 make ci       # check formatting, run go vet, and run race-enabled tests
 make dist     # build all supported release executables under dist/
@@ -181,18 +272,10 @@ make clean    # remove bin/ and dist/
 Optional integration tests can run against private save fixtures without adding them to the repository:
 
 ```sh
-PALWORLD_SAVE_FIXTURES=/path/to/fixtures go test ./internal/palsav ./internal/projection
+PALWORLD_SAVE_FIXTURES=/path/to/fixtures go test ./...
 ```
 
-The fixture directory may contain `Level.sav`, `LevelMeta.sav`, and files under `Players/`. Real saves, player names, account identifiers, projected output, and private test data must remain outside the repository.
-
-## Project layout
-
-```text
-cmd/savedecode/             command-line interface
-internal/palsav/            container decompression and GVAS property parser
-internal/projection/        projection contract, matcher, output, and embedded assets
-```
+The fixture directory must contain `Level.sav`, `LevelMeta.sav`, and both normal and `_dps.sav` files under `Players/`; [`internal/savefixtures`](internal/savefixtures) validates that layout so a partly populated directory fails instead of quietly reducing coverage. Real saves, player names, account identifiers, projected output, and private test data must remain outside the repository.
 
 ## License and provenance
 

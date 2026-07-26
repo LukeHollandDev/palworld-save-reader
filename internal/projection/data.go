@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/LukeHollandDev/palworld-save-reader/internal/palsav"
+	"github.com/LukeHollandDev/palworld-save-reader/internal/gvas"
 )
 
 const (
@@ -40,7 +40,7 @@ type normalizer struct {
 	nodes int
 }
 
-func normalizeSource(properties palsav.Properties) (*sourceNode, error) {
+func normalizeSource(properties gvas.Properties) (*sourceNode, error) {
 	return (&normalizer{}).value(properties, "$", 0)
 }
 
@@ -55,7 +55,7 @@ func (normalizer *normalizer) value(value any, path string, depth int) (*sourceN
 	switch typed := value.(type) {
 	case nil:
 		return &sourceNode{kind: KindNull, path: path}, nil
-	case palsav.Properties:
+	case gvas.Properties:
 		node := &sourceNode{kind: KindObject, path: path}
 		for index := range typed {
 			property := &typed[index]
@@ -67,11 +67,11 @@ func (normalizer *normalizer) value(value any, path string, depth int) (*sourceN
 			node.fields = append(node.fields, sourceField{name: property.Name, node: child})
 		}
 		return node, nil
-	case palsav.StructValue:
+	case gvas.StructValue:
 		return normalizer.value(typed.Value, path, depth)
-	case palsav.EnumValue:
+	case gvas.EnumValue:
 		return &sourceNode{kind: KindString, value: typed.Value, path: path}, nil
-	case palsav.UndecodedValue:
+	case gvas.UndecodedValue:
 		if err := normalizer.consumeNodes(3); err != nil {
 			return nil, err
 		}
@@ -105,7 +105,7 @@ func (normalizer *normalizer) value(value any, path string, depth int) (*sourceN
 			},
 			path: path,
 		}, nil
-	case *palsav.MapValue:
+	case *gvas.MapValue:
 		if typed == nil {
 			return &sourceNode{kind: KindNull, path: path}, nil
 		}
@@ -140,7 +140,7 @@ func (normalizer *normalizer) value(value any, path string, depth int) (*sourceN
 			return nil, err
 		}
 		return node, nil
-	case *palsav.SetValue:
+	case *gvas.SetValue:
 		if typed == nil {
 			return &sourceNode{kind: KindNull, path: path}, nil
 		}
@@ -159,12 +159,12 @@ func (normalizer *normalizer) value(value any, path string, depth int) (*sourceN
 			return nil, err
 		}
 		return node, nil
-	case palsav.ArrayValue:
+	case gvas.ArrayValue:
 		if typed.Structs != nil {
 			return normalizer.value(typed.Structs, path, depth)
 		}
 		return normalizer.reflectValue(reflect.ValueOf(typed.Values), path, depth)
-	case *palsav.StructArray:
+	case *gvas.StructArray:
 		if typed == nil {
 			return &sourceNode{kind: KindNull, path: path}, nil
 		}
@@ -183,7 +183,7 @@ func (normalizer *normalizer) value(value any, path string, depth int) (*sourceN
 			return nil, err
 		}
 		return node, nil
-	case palsav.GUID:
+	case gvas.GUID:
 		return &sourceNode{kind: KindString, value: typed.String(), path: path}, nil
 	case bool:
 		return &sourceNode{kind: KindBoolean, value: typed, path: path}, nil

@@ -1,0 +1,20 @@
+{
+  "$schema": "../../../projection-v1.schema.json",
+  "projectionVersion": 1,
+  "name": "player-exploration",
+  "gameVersion": "1.0.1.100619",
+  "saveType": "player.sav",
+  "shape": {
+    "RecordData": {
+      "FastTravelPointUnlockFlag": [
+        { "Key": "", "Value": false }
+      ],
+      "FindAreaFlagMap": [
+        { "Key": "", "Value": false }
+      ],
+      "NoteObtainForInstanceFlag": [
+        { "Key": "", "Value": false }
+      ]
+    }
+  }
+}

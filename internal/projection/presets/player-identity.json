@@ -1,0 +1,16 @@
+{
+  "$schema": "../../../projection-v1.schema.json",
+  "projectionVersion": 1,
+  "name": "player-identity",
+  "gameVersion": "1.0.1.100619",
+  "saveType": "player.sav",
+  "shape": {
+    "PlayerUId": "",
+    "IndividualId": {
+      "PlayerUId": "",
+      "InstanceId": ""
+    },
+    "PlayerPlatform": "",
+    "LastOnlineDateTime": 0
+  }
+}

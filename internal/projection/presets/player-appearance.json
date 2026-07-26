@@ -1,0 +1,21 @@
+{
+  "$schema": "../../../projection-v1.schema.json",
+  "projectionVersion": 1,
+  "name": "player-appearance",
+  "gameVersion": "1.0.1.100619",
+  "saveType": "player.sav",
+  "shape": {
+    "PlayerCharacterMakeData": {
+      "BodyMeshName": "",
+      "HeadMeshName": "",
+      "HairMeshName": "",
+      "EyeMaterialName": "",
+      "VoiceID": 0,
+      "HairColor": { "R": 0, "G": 0, "B": 0, "A": 0 },
+      "BrowColor": { "R": 0, "G": 0, "B": 0, "A": 0 },
+      "EyeColor": { "R": 0, "G": 0, "B": 0, "A": 0 },
+      "BodyColor": { "R": 0, "G": 0, "B": 0, "A": 0 },
+      "BodySubsurfaceColor": { "R": 0, "G": 0, "B": 0, "A": 0 }
+    }
+  }
+}

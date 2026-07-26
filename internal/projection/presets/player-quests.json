@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../projection-v1.schema.json",
+  "projectionVersion": 1,
+  "name": "player-quests",
+  "gameVersion": "1.0.1.100619",
+  "saveType": "player.sav",
+  "shape": {
+    "OrderedQuestArray_FullRelease": [
+      {
+        "QuestName": "",
+        "BlockIndex": 0,
+        "IntegerMap": [
+          { "Key": "", "Value": 0 }
+        ]
+      }
+    ]
+  }
+}
