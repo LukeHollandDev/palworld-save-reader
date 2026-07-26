@@ -18,14 +18,16 @@ import (
 // palworld's table means a change to that table has to be reflected
 // deliberately, and TestExpanderPathMatchesPalworldTable holds the two together.
 const (
-	itemSlotPath  = ".worldSaveData.ItemContainerSaveData.Value.Slots.Slots.RawData"
-	characterPath = ".worldSaveData.CharacterSaveParameterMap.Value.RawData"
+	itemSlotPath      = ".worldSaveData.ItemContainerSaveData.Value.Slots.Slots.RawData"
+	characterPath     = ".worldSaveData.CharacterSaveParameterMap.Value.RawData"
+	characterSlotPath = ".worldSaveData.CharacterContainerSaveData.Value.Slots.Slots.RawData"
 )
 
 func TestExpanderPathMatchesPalworldTable(t *testing.T) {
 	for path, want := range map[string]palworld.RawDataKind{
-		itemSlotPath:  palworld.RawDataItemSlot,
-		characterPath: palworld.RawDataCharacter,
+		itemSlotPath:      palworld.RawDataItemSlot,
+		characterPath:     palworld.RawDataCharacter,
+		characterSlotPath: palworld.RawDataCharacterSlot,
 	} {
 		if got := palworld.ClassifyRawData(path); got != want {
 			t.Errorf("palworld classifies %s as %v, want %v", path, got, want)
@@ -164,9 +166,10 @@ func TestDecodeRawReportsDynamicItemIDAndTrailer(t *testing.T) {
 func TestDecodeRawIgnoresUnknownPaths(t *testing.T) {
 	payload := slotPayload(1, 2, "PalSphere", make([]byte, 52))
 	for _, path := range []string{
-		".worldSaveData.CharacterContainerSaveData.Value.Slots.Slots.RawData",
 		".worldSaveData.ItemContainerSaveData.Value.Slots.Slots.CustomVersionData",
 		".worldSaveData.ItemContainerSaveData.Value.RawData",
+		".worldSaveData.CharacterContainerSaveData.Value.RawData",
+		".worldSaveData.CharacterContainerSaveData.Value.Slots.RawData",
 	} {
 		if _, ok := byteArrayAt(t, true, path, payload)["decoded"]; ok {
 			t.Errorf("%s produced a decoded block", path)
@@ -310,6 +313,75 @@ func TestDecodeRawReportsABadCharacterBlobInline(t *testing.T) {
 	}
 	if _, ok := node["decoded"]; ok {
 		t.Error("a failed decode also produced a decoded block")
+	}
+}
+
+// TestDecodeRawRendersACharacterSlotReference is the third layout: a slot that
+// names a character record rather than holding one. The instance id is reported
+// even when it is zero, because "this slot is empty" is information here.
+func TestDecodeRawRendersACharacterSlotReference(t *testing.T) {
+	payload := make([]byte, 38)
+	copy(payload[16:], []byte{
+		0x24, 0x07, 0x15, 0x6b, 0xef, 0x4c, 0x18, 0x21,
+		0x78, 0xa0, 0x5a, 0x81, 0x07, 0xbf, 0x95, 0xfb,
+	})
+
+	if _, ok := byteArrayAt(t, false, characterSlotPath, payload)["decoded"]; ok {
+		t.Error("--full without --decode-raw decoded a character slot")
+	}
+
+	node := byteArrayAt(t, true, characterSlotPath, payload)
+	if node["values"] == nil {
+		t.Error("--decode-raw dropped the raw byte array")
+	}
+	block, ok := node["decoded"].(map[string]any)
+	if !ok {
+		t.Fatalf("decoded block is %T", node["decoded"])
+	}
+	if block["kind"] != "characterSlot" {
+		t.Errorf("kind = %v", block["kind"])
+	}
+	if block["instanceId"] != "6b150724-2118-4cef-815a-a078fb95bf07" {
+		t.Errorf("instanceId = %v", block["instanceId"])
+	}
+	if block["empty"] != false {
+		t.Errorf("empty = %v", block["empty"])
+	}
+	// A zero PlayerUID and a zero trailer are what every fixture slot carries, so
+	// neither should add a key -- 2,250 slots' worth of zeroes is noise.
+	if _, ok := block["playerUId"]; ok {
+		t.Error("a zero playerUId was reported")
+	}
+	if _, ok := block["trailer"]; ok {
+		t.Error("an all-zero trailer was reported")
+	}
+
+	empty, ok := byteArrayAt(t, true, characterSlotPath, make([]byte, 38))["decoded"].(map[string]any)
+	if !ok {
+		t.Fatal("no decoded block for an empty slot")
+	}
+	if empty["empty"] != true {
+		t.Errorf("an empty slot reported empty = %v", empty["empty"])
+	}
+	if empty["instanceId"] != "00000000-0000-0000-0000-000000000000" {
+		t.Errorf("an empty slot reported instanceId = %v", empty["instanceId"])
+	}
+}
+
+// TestDecodeRawReportsABadCharacterSlotInline matches the other two layouts: a
+// blob too short to hold a reference is reported in place rather than failing the
+// dump.
+func TestDecodeRawReportsABadCharacterSlotInline(t *testing.T) {
+	node := byteArrayAt(t, true, characterSlotPath, []byte{1, 2, 3})
+	message, ok := node["decodeError"].(string)
+	if !ok {
+		t.Fatalf("decodeError is %T", node["decodeError"])
+	}
+	if !strings.Contains(message, "character slot") {
+		t.Errorf("decodeError = %q", message)
+	}
+	if node["values"] == nil {
+		t.Error("a failed decode dropped the raw byte array")
 	}
 }
 

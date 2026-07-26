@@ -10,7 +10,7 @@ import (
 )
 
 // This file is the registry of RawData layouts. The decoders themselves live
-// beside it, one file per layout: itemslot.go and character.go.
+// beside it, one file per layout: itemslot.go, character.go and characterslot.go.
 //
 // gvas surfaces a RawData property as plain []byte because Unreal's property tag
 // says only "array of ByteProperty" -- the layout inside is game knowledge,
@@ -35,6 +35,10 @@ const (
 	// RawDataCharacter is a player or pal record: a nested Unreal property
 	// stream followed by a short framing trailer. See Character.
 	RawDataCharacter
+	// RawDataCharacterSlot is one slot of a pal party, storage box, or base camp
+	// worker list: a reference to a character record rather than a record. See
+	// CharacterSlot.
+	RawDataCharacterSlot
 )
 
 func (kind RawDataKind) String() string {
@@ -43,6 +47,8 @@ func (kind RawDataKind) String() string {
 		return "itemSlot"
 	case RawDataCharacter:
 		return "character"
+	case RawDataCharacterSlot:
+		return "characterSlot"
 	default:
 		return "unknown"
 	}
@@ -52,8 +58,9 @@ func (kind RawDataKind) String() string {
 // reports for its own contents, so they are named once here rather than
 // repeated at the point of use.
 const (
-	itemSlotRawDataPath  = ".worldSaveData.ItemContainerSaveData.Value.Slots.Slots.RawData"
-	characterRawDataPath = ".worldSaveData.CharacterSaveParameterMap.Value.RawData"
+	itemSlotRawDataPath      = ".worldSaveData.ItemContainerSaveData.Value.Slots.Slots.RawData"
+	characterRawDataPath     = ".worldSaveData.CharacterSaveParameterMap.Value.RawData"
+	characterSlotRawDataPath = ".worldSaveData.CharacterContainerSaveData.Value.Slots.Slots.RawData"
 )
 
 // rawDataPaths maps a decoded property path to the layout of the RawData found
@@ -67,8 +74,9 @@ const (
 // layout is one line plus a decoder, and makes the set of decoded locations
 // something a test can enumerate.
 var rawDataPaths = map[string]RawDataKind{
-	itemSlotRawDataPath:  RawDataItemSlot,
-	characterRawDataPath: RawDataCharacter,
+	itemSlotRawDataPath:      RawDataItemSlot,
+	characterRawDataPath:     RawDataCharacter,
+	characterSlotRawDataPath: RawDataCharacterSlot,
 }
 
 // ClassifyRawData reports which RawData layout sits at a decoded property path.

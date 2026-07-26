@@ -120,29 +120,7 @@ type CustomVersion struct {
 	Version int32
 }
 
-// GUID is Unreal's four-uint32 FGuid representation.
-type GUID struct {
-	A uint32
-	B uint32
-	C uint32
-	D uint32
-}
-
-func (g GUID) String() string {
-	return fmt.Sprintf(
-		"%08x-%04x-%04x-%04x-%04x%08x",
-		g.A,
-		g.B>>16,
-		g.B&0xffff,
-		g.C>>16,
-		g.C&0xffff,
-		g.D,
-	)
-}
-
-func (g GUID) IsZero() bool { return g.A|g.B|g.C|g.D == 0 }
-
-func (g GUID) MarshalText() ([]byte, error) { return []byte(g.String()), nil }
+// GUID and its text form live in guid.go.
 
 // Properties preserves Unreal's serialized property order and array indices.
 type Properties []Property

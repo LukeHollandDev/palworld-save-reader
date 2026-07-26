@@ -20,6 +20,8 @@ const usageText = `usage:
   palworld-save-reader --full [--decode-raw] FILE
   palworld-save-reader --schema PROJECTION.json [--allow-partial] [--explain] FILE
   palworld-save-reader --preset NAME [--allow-partial] [--explain] FILE
+  palworld-save-reader --resolve player --id UID --saves DIR
+  palworld-save-reader --resolve players|world --saves DIR
   palworld-save-reader --list-presets
 `
 
@@ -39,17 +41,27 @@ func run(arguments []string, stdout, stderr io.Writer) int {
 	listPresets := flags.Bool("list-presets", false, "list bundled projection presets")
 	allowPartial := flags.Bool("allow-partial", false, "emit null for unresolved projected fields")
 	explain := flags.Bool("explain", false, "write JSON matching diagnostics to standard error")
+	resolveKind := flags.String("resolve", "", "join a save directory into one document: "+resolveKindNames())
+	resolveID := flags.String("id", "", "with --resolve player, the player UID to resolve")
+	savesDir := flags.String("saves", "", "with --resolve, the save directory holding Level.sav and Players/")
 
 	if err := flags.Parse(arguments); err != nil {
 		return 2
 	}
 
-	modeCount := boolInt(*full) + boolInt(*schemaPath != "") + boolInt(*presetName != "") + boolInt(*listPresets)
+	modeCount := boolInt(*full) + boolInt(*schemaPath != "") + boolInt(*presetName != "") +
+		boolInt(*listPresets) + boolInt(*resolveKind != "")
 	if modeCount != 1 {
-		return usageError(stderr, "exactly one of --full, --schema, --preset, or --list-presets is required")
+		return usageError(stderr, "exactly one of --full, --schema, --preset, --resolve, or --list-presets is required")
 	}
 	if *decodeRaw && !*full {
 		return usageError(stderr, "--decode-raw is only valid with --full")
+	}
+	if *resolveKind == "" && (*resolveID != "" || *savesDir != "") {
+		return usageError(stderr, "--id and --saves are only valid with --resolve")
+	}
+	if *resolveKind != "" {
+		return runResolveMode(stdout, stderr, *resolveKind, *resolveID, *savesDir, flags.NArg(), *allowPartial || *explain)
 	}
 	if *listPresets {
 		if flags.NArg() != 0 || *allowPartial || *explain {
@@ -317,6 +329,8 @@ func (e *expander) byteArray(array gvas.ArrayValue, path string) any {
 		decoded, err = itemSlotNode(data)
 	case palworld.RawDataCharacter:
 		decoded, err = e.characterNode(data, path)
+	case palworld.RawDataCharacterSlot:
+		decoded, err = characterSlotNode(data)
 	default:
 		return node
 	}
@@ -372,6 +386,29 @@ func (e *expander) characterNode(data []byte, path string) (any, error) {
 	// blob, so report it only when it is carrying something else.
 	if character.PaddingBeyondGroupID() {
 		decoded["trailer"] = base64.StdEncoding.EncodeToString(character.Trailer)
+	}
+	return decoded, nil
+}
+
+// characterSlotNode renders a pal reference: which character record occupies a
+// slot of a party, storage box, or base camp. The instance id is reported even
+// when it is zero, because an empty slot is information here rather than an
+// absent field.
+func characterSlotNode(data []byte) (any, error) {
+	slot, err := palworld.DecodeCharacterSlot(data)
+	if err != nil {
+		return nil, err
+	}
+	decoded := map[string]any{
+		"kind":       palworld.RawDataCharacterSlot.String(),
+		"instanceId": slot.InstanceID.String(),
+		"empty":      slot.Empty(),
+	}
+	if !slot.PlayerUID.IsZero() {
+		decoded["playerUId"] = slot.PlayerUID.String()
+	}
+	if trailer := trimZero(slot.Trailer); len(trailer) != 0 {
+		decoded["trailer"] = base64.StdEncoding.EncodeToString(slot.Trailer)
 	}
 	return decoded, nil
 }

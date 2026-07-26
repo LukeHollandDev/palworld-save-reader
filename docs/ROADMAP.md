@@ -1,8 +1,8 @@
 # Roadmap: nested decoding, package layout, and automatic joins
 
-Status: **phases 0, 1 and 2 are done**; phases 3 and 4 are not started. Written
-2026-07-25 against the working tree that narrows the decoder to Palworld 1.X and
-names the executable `palworld-save-reader`.
+Status: **phases 0 to 3 are done**; phase 4 is not started. Written 2026-07-25
+against the working tree that narrows the decoder to Palworld 1.X and names the
+executable `palworld-save-reader`.
 
 The executable is named for the module and repository exactly. A short name was
 considered and rejected: the reason to prefer one was distance from the old
@@ -13,12 +13,12 @@ working interactively can alias it.
 
 ## Why
 
-The tool answers "what does this one file contain". The higher-value question is
+The tool answered "what does this one file contain". The higher-value question is
 "what does this player have", and that answer spans two files plus a layer of
 undecoded blobs:
 
 ```
-player.sav  →  CommonContainerId: e0d93f36-…      ← all we can return today
+player.sav  →  CommonContainerId: e0d93f36-…      ← all we could return
 Level.sav   →  ItemContainerSaveData[e0d93f36-…]  ← Money x70434, PalSphere x684, …
 ```
 
@@ -29,9 +29,13 @@ allocates **1.9GB and then fails** at the 10,000,000-node ceiling in
 `internal/projection/data.go`. The decoder is not the problem; the projection
 layer's eager `normalizeSource` is.
 
+Phase 3 turned that proof of concept into `--resolve`. The estimate held: the real
+thing resolves all nine players, their 2,080 pals and their 467 item stacks in
+**0.08s and 111MB of heap**.
+
 ## What is actually in the way
 
-### Two, possibly three, flavours of `RawData`
+### Three, plus one still bespoke, flavours of `RawData`
 
 Most interesting world-save content sits in `RawData` byte arrays that the
 decoder currently surfaces as base64. They are not one format:
@@ -40,6 +44,7 @@ decoder currently surfaces as base64. They are not one format:
 | --- | --- | --- | --- |
 | Fixed record | `ItemContainerSaveData` slots | `uint32 slotIndex`, `uint32 count`, `FString itemId`, 16 zero bytes, 16-byte dynamic-item id, trailer | **Decoded** in phase 1; see below |
 | Nested GVAS | `CharacterSaveParameterMap` values | A complete Unreal property stream with no header: one `SaveParameter` / `StructProperty` / `PalIndividualCharacterSaveParameter`, then a 24-byte trailer | **Decoded** in phase 2; see below |
+| Flat reference | `CharacterContainerSaveData` slots | An `FPalInstanceID` written flat: 16-byte player uid, 16-byte instance id, then six bytes | **Decoded** in phase 3; see below |
 | Bespoke binary | `GroupSaveDataMap` values | Opens with a 16-byte GUID then counters; no GVAS framing | **Unverified.** Needs reverse engineering |
 
 ### What phase 1 found
@@ -74,8 +79,13 @@ wrong path simply matched nothing while every test still passed.
 declared path to be found, which is the check that would have caught it.
 
 `CharacterContainerSaveData` has a `Slots.Slots.RawData` of its own — 2,250
-blobs of 39 bytes, holding pal references rather than items. It is a different
-layout and is not decoded.
+blobs, holding pal references rather than items. It is a different layout, and
+phase 3 decoded it.
+
+(Phase 1 recorded those blobs as 39 bytes each. They are 38: phase 3 measured
+every one of them while writing the decoder. The figure was written down from a
+partial reading rather than counted, which is the same mistake the trailer census
+above records.)
 
 ### What phase 2 found
 
@@ -132,6 +142,72 @@ because a game update that extends the framing should not make a save
 unreadable; a stream that will not parse is an error, because that is the claim
 the decoder is making.
 
+### What phase 3 found
+
+The pal-reference slot was the small piece the phase needed, and it behaved:
+16 bytes of player uid that are zero in all 2,250 fixture slots, 16 bytes of
+instance id, and six more zero bytes. Every slot resolves to a character record,
+each record is referenced exactly once, and the 2,250 distinct references are
+exactly the world's 2,250 pals. Two counts of the same population by two routes.
+
+The join then held up against a third, independent statement of the same fact. A
+pal's own record carries `OwnerPlayerUId`, which this tool does not use — it
+decides ownership from the container a player's save names. **2,080 pals resolve
+to a player through containers, and 2,080 records carry a non-zero
+`OwnerPlayerUId`, with no mismatches.** The remaining 170 are base camp workers,
+which have a container but no owner. Container placement and the record's own
+field agree completely, which is much stronger evidence than either alone.
+
+Three things were genuinely surprising:
+
+- **Unreal omits a property that equals its default, and the defaults are
+  provable.** `Level` is present on only 1,808 of 2,259 records, and its smallest
+  present value is **2** — never 0, never 1. So an absent `Level` means level one,
+  and 451 pals would otherwise have been reported as level 0. `Rank` is the same
+  shape (2,193 absent, smallest present value 2), and `Exp` is absent 442 times
+  and never present as zero. The distribution is what turns "probably the default"
+  into a fact.
+- **Reading the collections out of the file's order is free, and necessary.** A
+  pal is placed by `CharacterContainerSaveData` and described by
+  `CharacterSaveParameterMap`, but the descriptions are serialized first. Because
+  each collection is lazy and independently addressed, a scan can read the 35
+  character containers first, build the set of wanted instance ids, and then make
+  one pass over the 2,259 records decoding only the few hundred that matter. R2
+  says "one pass per collection", not "one pass in file order", and the difference
+  is what makes resolving one player cheap.
+- **`GameTimeSaveData` holds durations, not dates.** Both of its `DateTime` fields
+  land in the year 1 when read as timestamps, which is how they were spotted. The
+  game figure is 601.045 days and `LevelMeta`'s `InGameDay` is 601, which is the
+  check that the reading is right. `Level.sav`'s own `Revision` also turned out to
+  be the game build — 100619 for 1.0.1.100619 — so a resolved world reports the
+  version that wrote it.
+
+`gvas.ParseGUID` was added for `--id`: the inverse of `GUID.String`, accepting the
+dashed form the documents print and the dash-free form Palworld names a player's
+save file after. It is fuzzed against `String` for round-tripping, because an
+identifier that parses to the wrong value resolves to nothing rather than failing.
+
+The one thing phase 3 cannot deliver is the guild. `Guild` carries an id and
+nothing else, because `GroupSaveDataMap`'s payload is the bespoke layout phase 4
+still owes. That was known going in; it is recorded here because a document with a
+`guild.id` and no name looks like a bug otherwise.
+
+### Where R2 and R3 pull against each other
+
+R2 wants one pass over the world save for however many entities are asked for.
+R3 wants each output element encoded as it is produced. Those cannot both be taken
+literally: a pal is placed by one collection and described by another, so nothing
+can be emitted until the scan has read both.
+
+R2 wins, because the scan is the expensive half. The compromise is that the
+resolver collects compact documents during its single pass and then hands them to
+the caller one at a time, and `cmd` encodes each straight to standard output. The
+JSON array is never assembled in memory, which is what R3 was protecting against;
+the documents themselves are bounded by the number of players asked for. It also
+means nothing reaches standard output until the resolve has succeeded, so a
+failure cannot leave half an envelope behind — which turned out to be worth more
+than the memory saving.
+
 ### Volume
 
 `Level.sav` holds 111,579 `RawData` blobs. Character blobs are ~3.4KB each, so
@@ -146,16 +222,29 @@ either — a nested parse is a function over the same bytes.
 
 Measured on the fixture world, cumulatively:
 
-| `--full` | JSON | Time | Peak RSS |
-| --- | --- | --- | --- |
-| default | 223,826,982 B | 1.16s | baseline |
-| `--decode-raw`, phase 1 | 231,733,689 B (+3.5%) | 1.36s | +3% |
-| `--decode-raw`, phase 2 | 270,196,593 B (+20.7%) | 1.66s | +6% |
+| `--full` | JSON |
+| --- | --- |
+| default | 223,826,982 B |
+| `--decode-raw`, phase 1 | 231,733,689 B (+3.5%) |
+| `--decode-raw`, phase 2 | 270,196,593 B (+20.7%) |
+| `--decode-raw`, phase 3 | 270,817,593 B (+21.0%) |
 
 Character blobs are ~3.4KB of dense property data, so they cost far more JSON per
-blob than the item slots did despite being twelve times fewer. Without the flag
-the output is byte-identical to before both phases, checked by hash rather than
-assumed.
+blob than the item slots did despite being twelve times fewer; the phase 3
+references are 38 bytes each and barely register. Without the flag the output is
+byte-identical to before all three phases — 223,826,982 bytes, sha256
+`c8a03edc05fdb352…` — checked by hash rather than assumed.
+
+Times are quoted separately because the earlier rows were single measurements
+taken on separate runs and are not comparable with each other at that precision.
+Re-measured together on the phase 3 tree, two runs each: `--full` 1.07s and
+`--full --decode-raw` 1.28s, both peaking around 1.6GB of RSS.
+
+That 1.6GB is worth stating plainly, because it is the number `--resolve` exists to
+avoid. `--full` materialises the whole tree as JSON-ready values; a resolve of all
+nine players on the same file takes **0.08s and peaks at 124MB**, and a peak-heap
+test now fails the build if that regresses. The mode that answers the useful
+question is two orders of magnitude cheaper than the mode that dumps everything.
 
 Where the blobs are, from a walk of the fixture world:
 
@@ -164,18 +253,19 @@ Where the blobs are, from a walk of the fixture world:
 | `MapObjectSaveData` (several sub-paths) | 63,724 | 0–3,213 | — |
 | `ItemContainerSaveData.Value.Slots.Slots` | 27,094 | 21–351 | **1, done** |
 | `FoliageGridSaveDataMap` | 6,273 | 51–108 | — |
-| `CharacterContainerSaveData.Value.Slots.Slots` | 2,250 | 39 | — |
+| `CharacterContainerSaveData.Value.Slots.Slots` | 2,250 | 38 | **3, done** |
 | `CharacterSaveParameterMap.Value` | 2,259 | 2,628–4,140 | **2, done** |
 | `ItemContainerSaveData.Value` | 8,723 | — | — |
-| `DynamicItemSaveData` | 581 | 57–1,518 | 3 |
+| `DynamicItemSaveData` | 581 | 57–1,518 | — |
 | `GroupSaveDataMap.Value` | 15 | 39–16,287 | **4** |
 | `BaseCampSaveData` (several sub-paths) | 192 | 0–1,512 | **4** |
 
 The 2,250 `CharacterContainerSaveData` slots and the 2,250 pal records are the
-same population counted two ways, which is a useful cross-check: those 39-byte
-slots hold the pal references that turn a player's `PalStorageContainerId` into a
-list of the records phase 2 now decodes. They are the smallest remaining piece of
-the player picture and the natural first thing to reach for in phase 3.
+same population counted two ways, which phase 3 used as its first cross-check:
+those 38-byte slots hold the pal references that turn a player's
+`PalStorageContainerId` into a list of the records phase 2 decodes. They were the
+smallest remaining piece of the player picture, and decoding them was the first
+thing phase 3 did.
 
 ## Package layout
 
@@ -203,7 +293,7 @@ internal/gvas/                  Unreal GVAS: header, properties, values, lazy co
 internal/palworld/              Palworld specifics: type hints, save entry points, RawData layouts
 internal/savefixtures/          private-fixture discovery for tests
 internal/projection/            declarative shape extraction from one save
-internal/resolve/               cross-save joins — the automatic layer (phase 3)
+internal/resolve/               cross-save joins — the automatic layer, added in phase 3
 ```
 
 Each name states its job, and nothing is called `palsav`. Where the old files
@@ -232,7 +322,8 @@ Direct internal imports, verified with `go list`:
 | `palworld` | `gvas`, `savefile` |
 | `savefixtures` | — |
 | `projection` | `gvas` |
-| `cmd/palworld-save-reader` | `gvas`, `palworld`, `projection` |
+| `resolve` | `gvas`, `palworld`, `savefile` |
+| `cmd/palworld-save-reader` | `gvas`, `palworld`, `projection`, `resolve` |
 
 `savefile` imports `gvas` rather than the reverse. That was the one real design
 decision in phase 0: `gvas` has to be the generic leaf if it is to stay free of
@@ -255,6 +346,17 @@ its `RawData` decoders return `gvas` types and, for the nested streams, call bac
 into `gvas.ParseProperties`. That is the layering working as intended rather than
 a leak — the arrow still points down, and the game knowledge (which path holds
 which layout, and how the bytes after the terminator are framed) stays here.
+
+`resolve` is a second package that knows game semantics, which needs saying
+because the rule above is "`palworld` is the only package allowed to". The two own
+different kinds of knowledge. `palworld` knows how to **decode**: which concrete
+struct hides behind an untagged property, and which byte layout a blob holds.
+`resolve` knows what the decoded values **mean**: that
+`InventoryInfo.CommonContainerId` names an entry of `ItemContainerSaveData`, that a
+pal's presence in a container slot is what makes it a player's, and that an absent
+`Level` means level one. Both break on a Palworld update, so they are the two
+places to look when one lands; keeping them separate means a schema change and a
+semantic change are separate diffs.
 
 ### Naming changes
 
@@ -292,40 +394,65 @@ table behind the same flag. Its `decoded` object carries a `properties` list
 rendered by the same expander as the rest of the dump, at the blob's own property
 path, so a consumer walks a nested character exactly as it walks anything else and
 a `RawData` nested deeper still would be classified by where it actually sits.
-Adding a third layout in phase 4 should again be a table entry and a decoder.
 
-One new mode is still to come:
+Phase 3 was the third layout, and it was exactly a table entry plus a decoder, as
+predicted. Phase 4's should be the same.
+
+Phase 3 also added the mode this was all for:
 
 ```text
-palworld-save-reader --resolve KIND [--id VALUE] --saves DIR
+palworld-save-reader --resolve player --id UID --saves DIR
+palworld-save-reader --resolve players|world --saves DIR
 ```
 
-| KIND | Returns |
-| --- | --- |
-| `player` | One fully resolved player; `--id` takes a player UID |
-| `players` | Every player in the save set |
-| `guild` | One guild with members; `--id` takes a group id |
-| `guilds` | Every guild |
-| `world` | World metadata, in-game time, and entity counts |
+| KIND | Returns | State |
+| --- | --- | --- |
+| `player` | One fully resolved player; `--id` takes a player UID | **done** |
+| `players` | Every player in the save set | **done** |
+| `world` | World metadata, in-game time, and entity counts | **done** |
+| `guild` | One guild with members; `--id` takes a group id | phase 4 |
+| `guilds` | Every guild | phase 4 |
 
 `--saves DIR` discovers `Level.sav`, `LevelMeta.sav` and `Players/*.sav`, so a
-caller points at a save directory rather than naming files. A resolved player
-document is composed, not projected:
+caller points at a save directory rather than naming files. `--id` accepts a player
+UID in either spelling the game uses, and matches it against the `PlayerUId` inside
+each player save rather than against the file name — the name is a convention, the
+property is the fact.
+
+Every answer is wrapped in a versioned envelope, `{"resolveVersion", "kind",
+<kind>}`, where the payload field is named for the kind. `--resolve players`
+streams its array element by element; the single-document kinds go out through
+`encoding/json` unchanged. A resolved player document is composed, not projected:
 
 ```json
 {
-  "playerUId": "…", "instanceId": "…", "platform": "…", "lastOnline": …,
+  "playerUId": "…", "instanceId": "…", "platform": "…",
+  "lastOnline": { "ticks": …, "utc": "…" },
   "position": { "x": …, "y": …, "z": … },
-  "character": { "level": …, "exp": …, "hp": … },
   "technologyPoints": …,
+  "character": { "nickname": "…", "level": …, "exp": …, "hp": …, "fullStomach": … },
+  "guild": { "id": "…" },
   "inventory": {
     "common":    [ { "slot": 0, "itemId": "Money", "count": 70434 }, … ],
-    "essential": [ … ], "weapons": [ … ], "armor": [ … ], "food": [ … ]
+    "dropSlot": [ … ], "essential": [ … ], "weapons": [ … ], "armor": [ … ], "food": [ … ]
   },
-  "pals": [ { "instanceId": "…", "species": "…", "level": …, "nickname": "…" }, … ],
-  "guild": { "id": "…", "name": "…", "memberCount": … }
+  "pals": [ {
+    "instanceId": "…", "species": "…", "nickname": "…", "gender": "…",
+    "level": …, "exp": …, "hp": …, "location": "party", "slot": 1,
+    "talents": { "hp": …, "shot": …, "defense": … }, "passiveSkills": [ … ]
+  }, … ],
+  "warnings": [ … ]
 }
 ```
+
+Two departures from the sketch this section used to carry. `guild` has an id and
+nothing else, because the name and member count need phase 4. And every document
+can carry `warnings`, which the sketch had no place for: a join that finds nothing
+says so, because "no pals" and "the pal container is missing from the world save"
+are otherwise the same output. The fields are grouped by provenance —
+`playerUId` to `technologyPoints` from the player's own save, `character`, `guild`
+and `pals` from the world save — since that is what a reader needs to know when a
+section is absent.
 
 ## Keep projection dumb
 
@@ -339,6 +466,12 @@ encodes game semantics and will therefore break on Palworld updates.
 The consequence for presets: `player-containers` stays useful as the dumb view,
 and `--resolve player` is the one that follows those identifiers through.
 
+Phase 3 kept to that, and the split turned out sharper than expected. Projection
+never had to change: `--resolve` reads the player saves through `palworld.Load` and
+walks the properties with a handful of typed accessors, and never touches
+`internal/projection` at all. The two are alternatives rather than layers, which is
+why `--schema` can keep failing on `Level.sav` without that blocking anything.
+
 ## Memory rules
 
 These are requirements, not aspirations, and R4 makes them enforceable.
@@ -347,11 +480,18 @@ These are requirements, not aspirations, and R4 makes them enforceable.
   collection. Iterate.
 - **R2** One pass over `Level.sav` per invocation, no matter how many entities
   are requested. Collect the wanted id set first, then fill it in during a single
-  scan — resolving nine players must not scan 8,723 containers nine times.
+  scan — resolving nine players must not scan 8,723 containers nine times. Read the
+  collections in dependency order rather than file order; each is independently
+  addressed, so this is free.
 - **R3** Stream output. `--resolve players` encodes each element as it is
-  produced rather than building the whole array first.
+  produced rather than building the whole array first. See the note above on where
+  this and R2 pull against each other.
 - **R4** A CI test asserts peak heap stays under a fixed budget while resolving
   the whole fixture save set, so a regression to eager decoding fails the build.
+  Held at 320MB against a measured 111MB. It catches an R1 violation, which is the
+  expensive one; the wanted-id discipline of R2 is too cheap to show up in a heap
+  budget, so it is checked separately by comparing allocations for one player
+  against all nine.
 
 ## Phases
 
@@ -360,8 +500,8 @@ These are requirements, not aspirations, and R4 makes them enforceable.
 | 0 | Executable rename to `palworld-save-reader`, then package rename and split; pure motion, no logic change | S | Coherent homes for phases 1–4 | **done** |
 | 1 | `palworld/itemslot.go`: item-slot decoding, lazily; `--full` opt-in flag | S | Container contents visible | **done** |
 | 2 | `gvas.ParseProperties` and `palworld/character.go`: nested property streams via a re-entrant call | M | Pal and character detail — the big one | **done** |
-| 3 | `internal/resolve` + `--resolve player\|players\|world`; R1–R4 | M | The automatic joins | next |
-| 4 | `GroupSaveDataMap` and `BaseCampSaveData` reverse engineering; `--resolve guild\|guilds` | ? | Guilds and bases | |
+| 3 | `palworld/characterslot.go`, `internal/resolve` + `--resolve player\|players\|world`; R1–R4 | M | The automatic joins | **done** |
+| 4 | `GroupSaveDataMap` and `BaseCampSaveData` reverse engineering; `--resolve guild\|guilds` | ? | Guilds and bases | next |
 
 Phase 0 went first because phases 1–4 need `palworld/` and `resolve/` to exist;
 adding them alongside `internal/palsav` would have been incoherent. It is a large
@@ -383,10 +523,23 @@ diff but a mechanical one — review with `git diff --find-renames`.
   reader, and the trailer turned out to be 24 bytes of fixed shape. The earlier
   breakage was an artefact of parsing by hand during investigation, not a property
   of the format.
-- **Phase 3 memory.** Phase 2 makes it cheap to decode 2,259 dense records, which
+- ~~**Phase 3 memory.** Phase 2 makes it cheap to decode 2,259 dense records, which
   is exactly the temptation R1–R4 exist to resist. `--resolve players` must
   collect the wanted id set first and decode only the records it needs, not
-  decode every character and filter.
+  decode every character and filter.~~ Held. The wanted-id set is built from the
+  player saves before the world save is touched, and resolving the whole fixture
+  set peaks at 111MB. The risk was real, though: the obvious implementation —
+  decode every record, then filter by `OwnerPlayerUId` — is simpler to write and
+  would have passed every functional test.
+- **Default values are invisible.** Unreal omits a property equal to its default,
+  so a resolved document has to know that an absent `Level` means one rather than
+  zero. Phase 3 proved that from the fixture distribution for `Level`, `Rank` and
+  `Exp`, but the same trap applies to every numeric field added later, and getting
+  it wrong produces a plausible wrong answer rather than an error.
 - **Fixture coverage.** All of this is verified against one world and nine player
   saves from `1.0.1.100619`. Guild and base work in particular would benefit from
-  a save set with more social structures in it.
+  a save set with more social structures in it. Every resolve figure quoted here
+  comes from that one world; the two-player synthetic save set built in
+  `internal/resolve`'s tests covers the shapes it does not contain — a container
+  missing from the world save, a pal owned by nobody, a record with no `Level` —
+  but it is a description of the format rather than evidence about the game.

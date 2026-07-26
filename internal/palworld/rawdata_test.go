@@ -12,26 +12,31 @@ import (
 // of the table, so a path that changes has to be changed here too.
 func TestClassifyRawData(t *testing.T) {
 	for path, want := range map[string]RawDataKind{
-		".worldSaveData.ItemContainerSaveData.Value.Slots.Slots.RawData": RawDataItemSlot,
-		".worldSaveData.CharacterSaveParameterMap.Value.RawData":         RawDataCharacter,
+		".worldSaveData.ItemContainerSaveData.Value.Slots.Slots.RawData":      RawDataItemSlot,
+		".worldSaveData.CharacterSaveParameterMap.Value.RawData":              RawDataCharacter,
+		".worldSaveData.CharacterContainerSaveData.Value.Slots.Slots.RawData": RawDataCharacterSlot,
 		// Neighbouring paths that must not be mistaken for a known layout: a
-		// container's own RawData, the pal-reference slots that share the item
-		// slots' shape of path, and the property one level up.
+		// container's own RawData, the property one level up, and the key side of
+		// a map whose value side is decoded. The item and character container
+		// slots differ only in the container's name, so they are the pair most
+		// likely to be confused for one another.
 		"": RawDataUnknown,
-		".worldSaveData.ItemContainerSaveData.Value.RawData":                  RawDataUnknown,
-		".worldSaveData.CharacterContainerSaveData.Value.Slots.Slots.RawData": RawDataUnknown,
-		".worldSaveData.ItemContainerSaveData.Value.Slots.Slots":              RawDataUnknown,
-		".worldSaveData.CharacterSaveParameterMap.Key.RawData":                RawDataUnknown,
+		".worldSaveData.ItemContainerSaveData.Value.RawData":            RawDataUnknown,
+		".worldSaveData.CharacterContainerSaveData.Value.RawData":       RawDataUnknown,
+		".worldSaveData.ItemContainerSaveData.Value.Slots.Slots":        RawDataUnknown,
+		".worldSaveData.CharacterContainerSaveData.Value.Slots.RawData": RawDataUnknown,
+		".worldSaveData.CharacterSaveParameterMap.Key.RawData":          RawDataUnknown,
 	} {
 		if got := ClassifyRawData(path); got != want {
 			t.Errorf("ClassifyRawData(%q) = %v, want %v", path, got, want)
 		}
 	}
 	for kind, want := range map[RawDataKind]string{
-		RawDataItemSlot:  "itemSlot",
-		RawDataCharacter: "character",
-		RawDataUnknown:   "unknown",
-		RawDataKind(99):  "unknown",
+		RawDataItemSlot:      "itemSlot",
+		RawDataCharacter:     "character",
+		RawDataCharacterSlot: "characterSlot",
+		RawDataUnknown:       "unknown",
+		RawDataKind(99):      "unknown",
 	} {
 		if got := kind.String(); got != want {
 			t.Errorf("RawDataKind(%d).String() = %q, want %q", kind, got, want)
