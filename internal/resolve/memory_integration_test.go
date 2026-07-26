@@ -24,9 +24,9 @@ import (
 // reach, in bytes.
 //
 // The figure is the measured peak with headroom, not a target: on the fixture world
-// (a 1.0.1.100619 save with 9 players, 2,259 character records, 8,723 item containers
-// and 111,579 RawData blobs) a full resolve peaks at around 110MB, most of which is
-// the decompressed world archive itself. The budget is three times that, so an
+// (a 1.0.1.100619 save with 9 players, 3,349 character records and tens of thousands
+// of RawData blobs) a full resolve peaks at around 140MB, most of which is the
+// decompressed world archive itself. The budget is roughly twice that, so an
 // ordinary Go release or a somewhat larger world does not fail the build.
 //
 // What this catches is an R1 violation: calling Entries or Values on a Level.sav
@@ -74,7 +74,7 @@ func TestResolveStaysWithinItsHeapBudget(t *testing.T) {
 
 // TestResolvingOnePlayerCostsLessThanAll is the shape of the claim R2 makes about
 // work rather than about memory: a resolve reads only the records it needs, so
-// asking for one player out of nine must not decode all 2,250 pals.
+// asking for one player out of nine must not decode every pal in the world.
 //
 // It is measured as allocated bytes rather than time, which is stable enough to
 // assert on: the world archive is parsed either way, and the difference is the
@@ -116,6 +116,85 @@ func TestResolvingOnePlayerCostsLessThanAll(t *testing.T) {
 		all>>20, one>>20)
 	if one >= all {
 		t.Errorf("resolving one player allocated %d bytes and resolving every player allocated %d: the wanted-id filter is not saving any work",
+			one, all)
+	}
+}
+
+// TestResolveGuildsStaysWithinItsHeapBudget is the same budget for the mode phase
+// 4 added. A guild resolve reads four collections rather than three and decodes the
+// base camps' workers, so it is the mode most likely to reach for Entries on a
+// container -- which is exactly what this would catch.
+func TestResolveGuildsStaysWithinItsHeapBudget(t *testing.T) {
+	set, err := Discover(savefixtures.Root(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var guilds, bases, workers int
+	peak := peakHeap(t, func() {
+		resolver, err := Open(set, Options{})
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if err := resolver.Guilds(func(guild *Guild) error {
+			guilds++
+			bases += len(guild.Bases)
+			workers += guild.Counts.Workers
+			return nil
+		}); err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Logf("peak heap = %d MiB resolving %d guilds, %d bases and %d workers (budget %d MiB)",
+		peak>>20, guilds, bases, workers, heapBudget>>20)
+	if guilds == 0 {
+		t.Fatal("no guilds were resolved, so the measurement means nothing")
+	}
+	if peak > heapBudget {
+		t.Errorf("peak heap %d MiB exceeds the %d MiB budget: something is being decoded or collected eagerly",
+			peak>>20, heapBudget>>20)
+	}
+}
+
+// TestResolvingOneGuildCostsLessThanAll is R2 for guilds: the wanted-id filter is
+// applied to the groups, and everything the later passes decode follows from it, so
+// one guild must cost less than eight.
+func TestResolvingOneGuildCostsLessThanAll(t *testing.T) {
+	set, err := Discover(savefixtures.Root(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := Open(set, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var smallest *Guild
+	all := allocatedBy(t, func() {
+		if err := resolver.Guilds(func(guild *Guild) error {
+			if smallest == nil || guild.Counts.Workers < smallest.Counts.Workers {
+				smallest = guild
+			}
+			return nil
+		}); err != nil {
+			t.Error(err)
+		}
+	})
+	if smallest == nil {
+		t.Skip("the fixture world has no guilds to measure against")
+	}
+	one := allocatedBy(t, func() {
+		if _, err := resolver.Guild(smallest.GroupID); err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Logf("resolving all guilds allocated %d MiB; resolving the smallest alone allocated %d MiB",
+		all>>20, one>>20)
+	if one >= all {
+		t.Errorf("resolving one guild allocated %d bytes and resolving every guild allocated %d: the wanted-id filter is not saving any work",
 			one, all)
 	}
 }

@@ -97,6 +97,56 @@ func TestRunResolvesAgainstTheFixtureSaveSet(t *testing.T) {
 		}
 	}
 
+	// The guild kinds, and the id a player document reports as its guild: the two
+	// modes have to agree on what an id means, or --resolve guild is unreachable
+	// from --resolve player.
+	stdout.Reset()
+	stderr.Reset()
+	if status := run([]string{"--resolve", "guilds", "--saves", root}, &stdout, &stderr); status != 0 {
+		t.Fatalf("--resolve guilds status = %d, stderr = %q", status, stderr.String())
+	}
+	var guilds struct {
+		Kind   string
+		Guilds []resolve.Guild
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &guilds); err != nil {
+		t.Fatalf("--resolve guilds output is not JSON: %v", err)
+	}
+	if guilds.Kind != "guilds" || len(guilds.Guilds) == 0 {
+		t.Fatalf("kind = %q with %d guilds", guilds.Kind, len(guilds.Guilds))
+	}
+	t.Logf("resolved %d guilds from %d bytes of JSON", len(guilds.Guilds), stdout.Len())
+
+	if first.Guild == nil {
+		t.Fatal("the first player has no guild, so the guild id cannot be followed")
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if status := run([]string{
+		"--resolve", "guild", "--id", first.Guild.ID.String(), "--saves", root,
+	}, &stdout, &stderr); status != 0 {
+		t.Fatalf("--resolve guild status = %d, stderr = %q", status, stderr.String())
+	}
+	var single struct {
+		Kind  string
+		Guild resolve.Guild
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &single); err != nil {
+		t.Fatalf("--resolve guild output is not JSON: %v", err)
+	}
+	if single.Kind != "guild" || single.Guild.GroupID != first.Guild.ID {
+		t.Errorf("resolving %s gave kind %q and group %s",
+			first.Guild.ID, single.Kind, single.Guild.GroupID)
+	}
+	if single.Guild.Name != first.Guild.Name {
+		t.Errorf("the guild is %q in the player document and %q in its own",
+			first.Guild.Name, single.Guild.Name)
+	}
+	if len(single.Guild.Members) != first.Guild.MemberCount {
+		t.Errorf("the player reports %d members and the guild lists %d",
+			first.Guild.MemberCount, len(single.Guild.Members))
+	}
+
 	// An id nobody has fails at runtime rather than emitting an empty document.
 	stdout.Reset()
 	stderr.Reset()

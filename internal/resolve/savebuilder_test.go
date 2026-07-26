@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/LukeHollandDev/palworld-save-reader/internal/gvas"
 )
@@ -454,6 +455,179 @@ func (player playerFixture) record() []byte {
 	return stream.bytes()
 }
 
+// fstring16 writes an FString the way Unreal writes anything outside ASCII: a
+// negative count of UTF-16 code units, including the terminator. The fixture
+// world's base camp names are all written this way, so a synthetic camp is too.
+func (b *builder) fstring16(value string) {
+	codes := utf16.Encode([]rune(value))
+	b.i32(-int32(len(codes) + 1))
+	for _, code := range append(codes, 0) {
+		b.u16(code)
+	}
+}
+
+// transform writes an FTransform as a bespoke record does: ten float64s,
+// rotation first. The rotation is a real unit quaternion because that is what a
+// save holds, and reading it back is how the offsets are checked.
+func (b *builder) transform(translation gvas.Vector) {
+	for _, value := range []float64{0, 0, 0.8628, 0.5056} {
+		b.f64(value)
+	}
+	for _, value := range []float64{translation.X, translation.Y, translation.Z} {
+		b.f64(value)
+	}
+	for i := 0; i < 3; i++ {
+		b.f64(1)
+	}
+}
+
+// guildMemberFixture is one account in a synthetic guild.
+type guildMemberFixture struct {
+	uid        gvas.GUID
+	name       string
+	lastOnline int64
+	role       byte
+}
+
+// baseFixture is one base camp of a synthetic guild.
+type baseFixture struct {
+	id        gvas.GUID
+	name      string
+	location  gvas.Vector
+	areaRange float32
+	// workers is the character container holding the camp's workers. A zero id
+	// makes the camp name no container, which must be reported.
+	workers gvas.GUID
+	// point is the map object the camp is built around, listed by the guild as a
+	// base camp point and by the camp as its owner object.
+	point gvas.GUID
+	// absent leaves the camp out of BaseCampSaveData while the guild still names
+	// it, which is the dangling-reference case.
+	absent bool
+	// otherGroup makes the camp name a different guild than the one claiming it,
+	// which the two-way join must report rather than silently prefer.
+	otherGroup gvas.GUID
+}
+
+// record writes the RawData of a base camp.
+func (base baseFixture) record(group gvas.GUID) []byte {
+	owner := group
+	if !base.otherGroup.IsZero() {
+		owner = base.otherGroup
+	}
+	var raw builder
+	raw.guid(base.id)
+	raw.fstring16(base.name)
+	raw.u8(1)
+	raw.transform(base.location)
+	raw.f32(base.areaRange)
+	raw.guid(owner)
+	raw.transform(gvas.Vector{})
+	raw.guid(base.point)
+	raw.raw(make([]byte, 4))
+	return raw.bytes()
+}
+
+// director writes the RawData of a base camp's worker director.
+func (base baseFixture) director() []byte {
+	var raw builder
+	raw.guid(base.id)
+	raw.transform(base.location)
+	raw.raw(make([]byte, 2))
+	raw.guid(base.workers)
+	raw.raw(make([]byte, 4))
+	return raw.bytes()
+}
+
+// guildFixture is one entry of the synthetic GroupSaveDataMap.
+type guildFixture struct {
+	group gvas.GUID
+	name  string
+	admin gvas.GUID
+	level int32
+	// organization writes the entry as one of the world's fixed factions instead:
+	// the shared half of the record, four zero bytes, and a GroupType that says so.
+	organization bool
+	members      []guildMemberFixture
+	bases        []baseFixture
+	// handles are the characters the group lists. A non-zero uid marks a player.
+	handles []gvas.GUID
+	players []gvas.GUID
+}
+
+// record writes the RawData of a group: the shared half, then either an
+// organization's padding or the guild half.
+func (guild guildFixture) record() []byte {
+	var raw builder
+	raw.guid(guild.group)
+	if guild.organization {
+		raw.i32(0)
+	} else {
+		raw.fstring(bareHexGUID(guild.admin))
+	}
+	raw.u32(uint32(len(guild.handles) + len(guild.players)))
+	for _, uid := range guild.players {
+		raw.guid(uid)
+		raw.guid(playerCharacter(uid))
+	}
+	for _, instance := range guild.handles {
+		raw.guid(gvas.GUID{})
+		raw.guid(instance)
+	}
+	raw.u32(0)
+	if guild.organization {
+		raw.u8(5)
+		raw.u32(0)
+		raw.raw(make([]byte, 4))
+		return raw.bytes()
+	}
+	raw.u8(0)
+	raw.u32(uint32(len(guild.bases)))
+	for _, base := range guild.bases {
+		raw.guid(base.id)
+	}
+
+	raw.u32(0)
+	raw.i32(guild.level)
+	raw.u32(uint32(len(guild.bases)))
+	for _, base := range guild.bases {
+		raw.guid(base.point)
+	}
+	raw.fstring(guild.name)
+	raw.guid(guild.admin)
+	raw.raw(make([]byte, 14))
+	raw.guid(guild.admin)
+	raw.u32(uint32(len(guild.members)))
+	for _, member := range guild.members {
+		raw.guid(member.uid)
+		raw.i64(member.lastOnline)
+		raw.fstring(member.name)
+		raw.u8(member.role)
+	}
+	raw.raw(make([]byte, 4))
+	return raw.bytes()
+}
+
+// playerCharacter derives a player's character instance id from their account id,
+// so a guild handle and the character map agree without threading the pair
+// through every fixture.
+func playerCharacter(uid gvas.GUID) gvas.GUID {
+	return gvas.GUID{A: uid.A, B: 0x11111111}
+}
+
+// bareHexGUID renders a GUID as Palworld writes an account id into a group's
+// internal name: 32 upper-case hex digits.
+func bareHexGUID(id gvas.GUID) string {
+	const digits = "0123456789ABCDEF"
+	out := make([]byte, 0, 32)
+	for _, word := range []uint32{id.A, id.B, id.C, id.D} {
+		for shift := 28; shift >= 0; shift -= 4 {
+			out = append(out, digits[(word>>uint(shift))&0xf])
+		}
+	}
+	return string(out)
+}
+
 // itemFixture is one occupied item slot.
 type itemFixture struct {
 	slot    uint32
@@ -491,6 +665,9 @@ type worldFixture struct {
 	unowned []palFixture
 	// mapObjects is a count only, to exercise the struct-array counter.
 	mapObjects int
+	// guilds are the GroupSaveDataMap entries, whose bases become the
+	// BaseCampSaveData entries.
+	guilds []guildFixture
 }
 
 // slotBody writes one element of a character container's Slots array.
@@ -595,8 +772,8 @@ func (world worldFixture) save() []byte {
 		save.mapProperty("CharacterSaveParameterMap", "StructProperty", "StructProperty", characters)
 		save.mapProperty("CharacterContainerSaveData", "StructProperty", "StructProperty", containers)
 		save.mapProperty("ItemContainerSaveData", "StructProperty", "StructProperty", items)
-		save.mapProperty("GroupSaveDataMap", "StructProperty", "StructProperty", nil)
-		save.mapProperty("BaseCampSaveData", "StructProperty", "StructProperty", nil)
+		save.mapProperty("GroupSaveDataMap", "StructProperty", "StructProperty", world.groups())
+		save.mapProperty("BaseCampSaveData", "StructProperty", "StructProperty", world.camps())
 		empty := make([][]byte, 0, world.mapObjects)
 		for i := 0; i < world.mapObjects; i++ {
 			empty = append(empty, bareList(func(*builder) {}))
@@ -609,6 +786,53 @@ func (world worldFixture) save() []byte {
 	})
 	properties.none()
 	return archive("/Script/Pal.PalWorldSaveGame", properties.bytes())
+}
+
+// groups writes the GroupSaveDataMap entries. Both key sides are hinted as Guid,
+// so a key is 16 bare bytes rather than a property list.
+func (world worldFixture) groups() []mapEntry {
+	entries := []mapEntry{}
+	for _, guild := range world.guilds {
+		kind := "EPalGroupType::Guild"
+		if guild.organization {
+			kind = "EPalGroupType::Organization"
+		}
+		var key builder
+		key.guid(guild.group)
+		entries = append(entries, mapEntry{
+			key: key.bytes(),
+			value: bareList(func(value *builder) {
+				value.enum("GroupType", "EPalGroupType", kind)
+				value.byteArray("RawData", guild.record())
+			}),
+		})
+	}
+	return entries
+}
+
+// camps writes the BaseCampSaveData entries: one per base of every guild, less
+// the ones marked absent.
+func (world worldFixture) camps() []mapEntry {
+	entries := []mapEntry{}
+	for _, guild := range world.guilds {
+		for _, base := range guild.bases {
+			if base.absent {
+				continue
+			}
+			var key builder
+			key.guid(base.id)
+			entries = append(entries, mapEntry{
+				key: key.bytes(),
+				value: bareList(func(value *builder) {
+					value.list("WorkerDirector", "PalBaseCampWorkerDirectorSaveData", func(director *builder) {
+						director.byteArray("RawData", base.director())
+					})
+					value.byteArray("RawData", base.record(guild.group))
+				}),
+			})
+		}
+	}
+	return entries
 }
 
 // meta writes a synthetic LevelMeta.sav.

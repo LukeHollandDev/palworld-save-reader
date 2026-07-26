@@ -109,6 +109,11 @@ func (r *Resolver) resolve(wanted map[gvas.GUID]bool, visit func(*Player) error)
 	if err := scan.readInventories(r); err != nil {
 		return err
 	}
+	// Last, because it depends on what the character records said: the group ids
+	// are not known until they have been read.
+	if err := r.guildNames(scan.guilds()); err != nil {
+		return err
+	}
 	for _, player := range scan.order {
 		player.finish()
 		if err := visit(player.document); err != nil {
@@ -190,6 +195,18 @@ type scan struct {
 	itemOwner  map[gvas.GUID]*playerScan
 	containers map[gvas.GUID]containerTarget
 	pals       map[gvas.GUID]palTarget
+}
+
+// guilds collects the guild references the character records produced, grouped by
+// group id so one group record answers for every player in it.
+func (s *scan) guilds() map[gvas.GUID][]*GuildRef {
+	wanted := map[gvas.GUID][]*GuildRef{}
+	for _, player := range s.order {
+		if reference := player.document.Guild; reference != nil {
+			wanted[reference.ID] = append(wanted[reference.ID], reference)
+		}
+	}
+	return wanted
 }
 
 // readPlayerSaves parses the player saves, builds the half of each document that
@@ -420,6 +437,7 @@ func (s *scan) readCharacters(r *Resolver) error {
 	if err != nil {
 		return err
 	}
+	found := map[gvas.GUID]bool{}
 	iterator := characters.Iterator()
 	for iterator.Next() {
 		key, ok := iterator.Entry().Key.(gvas.Properties)
@@ -434,6 +452,9 @@ func (s *scan) readCharacters(r *Resolver) error {
 		isPlayer := owner != nil && !uid.IsZero()
 		if !isPal && !isPlayer {
 			continue
+		}
+		if isPal {
+			found[instance] = true
 		}
 
 		properties, ok := iterator.Entry().Value.(gvas.Properties)
@@ -466,6 +487,20 @@ func (s *scan) readCharacters(r *Resolver) error {
 	for _, player := range s.order {
 		if !player.recorded {
 			player.warn("the world save has no character record for this player, so no name, level or guild is available")
+		}
+	}
+	// A container slot that references a character the save no longer holds was
+	// silently dropped until phase 4, which is when it became clear the case is
+	// real: the fixture world has 3,347 slot references, and 7 of them name no
+	// record. Those 7 sit in containers nothing points at, so a resolve never
+	// reaches them -- every reference a player or a base camp makes does resolve.
+	// The warning is here because the difference between "no pal" and "the pal is
+	// gone" belongs in the output rather than in this comment.
+	for instance, target := range s.pals {
+		if !found[instance] {
+			target.owner.warn(
+				"%s slot %d holds the pal %s, but the world save has no character record for it",
+				target.location, target.slot, instance)
 		}
 	}
 	return nil
@@ -516,7 +551,7 @@ func (p *playerScan) readRecord(instance gvas.GUID, character palworld.Character
 	document.Character = record
 
 	if !character.GroupID.IsZero() {
-		document.Guild = &Guild{ID: character.GroupID}
+		document.Guild = &GuildRef{ID: character.GroupID}
 	}
 }
 

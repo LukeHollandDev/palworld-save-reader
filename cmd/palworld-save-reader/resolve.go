@@ -20,14 +20,17 @@ import (
 const (
 	resolvePlayer  = "player"
 	resolvePlayers = "players"
+	resolveGuild   = "guild"
+	resolveGuilds  = "guilds"
 	resolveWorld   = "world"
 )
 
-// resolveKinds maps each kind to whether it requires --id. Guilds will join this
-// table when GroupSaveDataMap is decoded.
+// resolveKinds maps each kind to whether it requires --id.
 var resolveKinds = map[string]bool{
 	resolvePlayer:  true,
 	resolvePlayers: false,
+	resolveGuild:   true,
+	resolveGuilds:  false,
 	resolveWorld:   false,
 }
 
@@ -87,6 +90,7 @@ type resolveEnvelope struct {
 	Kind           string          `json:"kind"`
 	World          *resolve.World  `json:"world,omitempty"`
 	Player         *resolve.Player `json:"player,omitempty"`
+	Guild          *resolve.Guild  `json:"guild,omitempty"`
 }
 
 // runResolve answers one question about a save directory.
@@ -121,27 +125,45 @@ func runResolve(stdout io.Writer, kind string, id gvas.GUID, directory string) e
 			Player:         player,
 		})
 	case resolvePlayers:
-		return writeResolvedPlayers(stdout, resolver.Players)
+		return writeResolvedArray(stdout, resolvePlayers, func(emit func(any) error) error {
+			return resolver.Players(func(player *resolve.Player) error { return emit(player) })
+		})
+	case resolveGuild:
+		guild, err := resolver.Guild(id)
+		if err != nil {
+			return err
+		}
+		return writeJSON(stdout, resolveEnvelope{
+			ResolveVersion: resolve.Version,
+			Kind:           kind,
+			Guild:          guild,
+		})
+	case resolveGuilds:
+		return writeResolvedArray(stdout, resolveGuilds, func(emit func(any) error) error {
+			return resolver.Guilds(func(guild *resolve.Guild) error { return emit(guild) })
+		})
 	default:
 		return fmt.Errorf("resolve: unknown kind %q", kind)
 	}
 }
 
-// writeResolvedPlayers streams the player array: each document is encoded to the
-// writer as it arrives rather than assembled into one value and encoded at the
+// writeResolvedArray streams one of the array kinds: each document is encoded to
+// the writer as it arrives rather than assembled into one value and encoded at the
 // end, which is memory rule R3.
 //
 // Nothing is written until the first document exists. A resolve that fails part
 // way through must not leave half an envelope on standard output, and a caller
 // reading the exit status would have no way to tell the difference.
 //
-// players is resolve.Resolver.Players, taken as a function so the framing can be
-// tested against documents that were not read from a save file.
-func writeResolvedPlayers(stdout io.Writer, players func(func(*resolve.Player) error) error) error {
+// The documents arrive through a callback rather than a slice so the framing can
+// be tested against documents that were never read from a save file, and so both
+// array kinds share one implementation: they differ only in the field name and
+// the element type.
+func writeResolvedArray(stdout io.Writer, kind string, each func(func(any) error) error) error {
 	written := 0
-	err := players(func(player *resolve.Player) error {
+	err := each(func(document any) error {
 		if written == 0 {
-			if err := writeResolvePrefix(stdout, resolvePlayers); err != nil {
+			if err := writeResolvePrefix(stdout, kind); err != nil {
 				return err
 			}
 			if _, err := io.WriteString(stdout, "[\n    "); err != nil {
@@ -151,15 +173,15 @@ func writeResolvedPlayers(stdout io.Writer, players func(func(*resolve.Player) e
 			return err
 		}
 		written++
-		return writeIndented(stdout, player, "    ")
+		return writeIndented(stdout, document, "    ")
 	})
 	if err != nil {
 		return err
 	}
 	if written == 0 {
-		// A save directory with no player saves is a legitimate answer, not an
-		// error, so the empty array is emitted rather than nothing at all.
-		if err := writeResolvePrefix(stdout, resolvePlayers); err != nil {
+		// A save with no players, or no guilds, is a legitimate answer rather than
+		// an error, so the empty array is emitted rather than nothing at all.
+		if err := writeResolvePrefix(stdout, kind); err != nil {
 			return err
 		}
 		_, err := io.WriteString(stdout, "[]\n}\n")

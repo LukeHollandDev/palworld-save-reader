@@ -21,7 +21,8 @@ const usageText = `usage:
   palworld-save-reader --schema PROJECTION.json [--allow-partial] [--explain] FILE
   palworld-save-reader --preset NAME [--allow-partial] [--explain] FILE
   palworld-save-reader --resolve player --id UID --saves DIR
-  palworld-save-reader --resolve players|world --saves DIR
+  palworld-save-reader --resolve guild --id GROUPID --saves DIR
+  palworld-save-reader --resolve players|guilds|world --saves DIR
   palworld-save-reader --list-presets
 `
 
@@ -42,7 +43,7 @@ func run(arguments []string, stdout, stderr io.Writer) int {
 	allowPartial := flags.Bool("allow-partial", false, "emit null for unresolved projected fields")
 	explain := flags.Bool("explain", false, "write JSON matching diagnostics to standard error")
 	resolveKind := flags.String("resolve", "", "join a save directory into one document: "+resolveKindNames())
-	resolveID := flags.String("id", "", "with --resolve player, the player UID to resolve")
+	resolveID := flags.String("id", "", "with --resolve player or guild, the UID to resolve")
 	savesDir := flags.String("saves", "", "with --resolve, the save directory holding Level.sav and Players/")
 
 	if err := flags.Parse(arguments); err != nil {
@@ -331,6 +332,12 @@ func (e *expander) byteArray(array gvas.ArrayValue, path string) any {
 		decoded, err = e.characterNode(data, path)
 	case palworld.RawDataCharacterSlot:
 		decoded, err = characterSlotNode(data)
+	case palworld.RawDataGroup:
+		decoded, err = groupNode(data)
+	case palworld.RawDataBaseCamp:
+		decoded, err = baseCampNode(data)
+	case palworld.RawDataWorkerDirector:
+		decoded, err = workerDirectorNode(data)
 	default:
 		return node
 	}
@@ -411,6 +418,136 @@ func characterSlotNode(data []byte) (any, error) {
 		decoded["trailer"] = base64.StdEncoding.EncodeToString(slot.Trailer)
 	}
 	return decoded, nil
+}
+
+// groupNode renders a guild or an organization.
+//
+// Which of the two it is comes from the sibling GroupType property, which this
+// renderer does not have: a RawData blob is expanded knowing only its own path.
+// So the guild half is attempted and reported when it decodes. That is a
+// heuristic, and it is a safe one because DecodeGuild is strict -- an
+// organization's four-byte remainder cannot satisfy the guild fields -- but it is
+// still the renderer guessing where --resolve guild is told.
+func groupNode(data []byte) (any, error) {
+	group, err := palworld.DecodeGroup(data)
+	if err != nil {
+		return nil, err
+	}
+	handles := make([]any, 0, len(group.Handles))
+	for _, handle := range group.Handles {
+		entry := map[string]any{"instanceId": handle.InstanceID.String()}
+		if !handle.PlayerUID.IsZero() {
+			entry["playerUId"] = handle.PlayerUID.String()
+		}
+		handles = append(handles, entry)
+	}
+	decoded := map[string]any{
+		"kind":             palworld.RawDataGroup.String(),
+		"groupId":          group.ID.String(),
+		"organizationType": group.OrganizationType,
+		"handles":          handles,
+		"baseIds":          guidStrings(group.BaseIDs),
+	}
+	if group.Name != "" {
+		decoded["name"] = group.Name
+	}
+	if group.Unknown != 0 {
+		decoded["unknown"] = group.Unknown
+	}
+	guild, guildErr := palworld.DecodeGuild(group.Remainder)
+	if guildErr != nil {
+		// Four zero bytes on every fixture organization, so it is reported only
+		// when it holds something this cannot read.
+		if remainder := trimZero(group.Remainder); len(remainder) != 0 {
+			decoded["remainder"] = base64.StdEncoding.EncodeToString(group.Remainder)
+			decoded["guildDecodeError"] = guildErr.Error()
+		}
+		return decoded, nil
+	}
+	members := make([]any, 0, len(guild.Members))
+	for _, member := range guild.Members {
+		members = append(members, map[string]any{
+			"playerUId":       member.PlayerUID.String(),
+			"name":            member.Name,
+			"lastOnlineTicks": member.LastOnlineTicks,
+			"role":            member.Role,
+		})
+	}
+	decoded["guild"] = map[string]any{
+		"name":          guild.Name,
+		"admin":         guild.Admin.String(),
+		"namedBy":       guild.NamedBy.String(),
+		"baseCampLevel": guild.BaseCampLevel,
+		"basePoints":    guidStrings(guild.BasePoints),
+		"members":       members,
+		"reserved":      base64.StdEncoding.EncodeToString(guild.Reserved),
+		"trailer":       base64.StdEncoding.EncodeToString(guild.Trailer),
+	}
+	return decoded, nil
+}
+
+// baseCampNode renders a guild's base camp: where it is and who owns it.
+func baseCampNode(data []byte) (any, error) {
+	camp, err := palworld.DecodeBaseCamp(data)
+	if err != nil {
+		return nil, err
+	}
+	decoded := map[string]any{
+		"kind":                     palworld.RawDataBaseCamp.String(),
+		"id":                       camp.ID.String(),
+		"name":                     camp.Name,
+		"state":                    camp.State,
+		"areaRange":                camp.AreaRange,
+		"groupId":                  camp.GroupID.String(),
+		"ownerMapObjectInstanceId": camp.OwnerMapObjectID.String(),
+		"transform":                transformNode(camp.Transform),
+		"fastTravelLocalTransform": transformNode(camp.FastTravel),
+	}
+	if trailer := trimZero(camp.Trailer); len(trailer) != 0 {
+		decoded["trailer"] = base64.StdEncoding.EncodeToString(camp.Trailer)
+	}
+	return decoded, nil
+}
+
+// workerDirectorNode renders a base camp's worker director, whose one useful
+// field is the container holding the camp's workers.
+func workerDirectorNode(data []byte) (any, error) {
+	director, err := palworld.DecodeWorkerDirector(data)
+	if err != nil {
+		return nil, err
+	}
+	decoded := map[string]any{
+		"kind":        palworld.RawDataWorkerDirector.String(),
+		"id":          director.ID.String(),
+		"containerId": director.ContainerID.String(),
+		"transform":   transformNode(director.Transform),
+	}
+	if reserved := trimZero(director.Reserved); len(reserved) != 0 {
+		decoded["reserved"] = base64.StdEncoding.EncodeToString(director.Reserved)
+	}
+	if trailer := trimZero(director.Trailer); len(trailer) != 0 {
+		decoded["trailer"] = base64.StdEncoding.EncodeToString(director.Trailer)
+	}
+	return decoded, nil
+}
+
+// transformNode renders an FTransform the same way the rest of the dump renders
+// the Vector and Quat structs gvas decodes, so a transform out of a RawData blob
+// and one out of a property look alike.
+func transformNode(transform palworld.Transform) any {
+	return map[string]any{
+		"rotation":    transform.Rotation,
+		"translation": transform.Translation,
+		"scale":       transform.Scale,
+	}
+}
+
+func guidStrings(ids []gvas.GUID) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, id.String())
+	}
+	return out
 }
 
 // trimZero returns input with trailing zero bytes removed.

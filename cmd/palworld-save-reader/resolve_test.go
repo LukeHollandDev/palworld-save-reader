@@ -14,13 +14,13 @@ import (
 	"github.com/LukeHollandDev/palworld-save-reader/internal/resolve"
 )
 
-// fakePlayers turns a list of documents into the callback shape
-// writeResolvedPlayers consumes, so the envelope and its framing can be tested
+// fakeDocuments turns a list of documents into the callback shape
+// writeResolvedArray consumes, so the envelope and its framing can be tested
 // without a save file.
-func fakePlayers(players ...*resolve.Player) func(func(*resolve.Player) error) error {
-	return func(visit func(*resolve.Player) error) error {
-		for _, player := range players {
-			if err := visit(player); err != nil {
+func fakeDocuments[T any](documents ...T) func(func(any) error) error {
+	return func(emit func(any) error) error {
+		for _, document := range documents {
+			if err := emit(document); err != nil {
 				return err
 			}
 		}
@@ -48,7 +48,7 @@ func testPlayer(t *testing.T, uid string) *resolve.Player {
 func TestResolvedPlayersStreamIntoOneEnvelope(t *testing.T) {
 	var out bytes.Buffer
 	first, second := testPlayer(t, "00000001-0000-0000-0000-000000000000"), testPlayer(t, "00000002-0000-0000-0000-000000000000")
-	if err := writeResolvedPlayers(&out, fakePlayers(first, second)); err != nil {
+	if err := writeResolvedArray(&out, resolvePlayers, fakeDocuments(first, second)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -92,7 +92,7 @@ func TestResolvedPlayersStreamIntoOneEnvelope(t *testing.T) {
 // answer, and one a consumer can iterate without a special case.
 func TestResolvedPlayersEmitsAnEmptyArray(t *testing.T) {
 	var out bytes.Buffer
-	if err := writeResolvedPlayers(&out, fakePlayers()); err != nil {
+	if err := writeResolvedArray(&out, resolvePlayers, fakeDocuments[*resolve.Player]()); err != nil {
 		t.Fatal(err)
 	}
 	var envelope struct {
@@ -113,7 +113,7 @@ func TestResolvedPlayersEmitsAnEmptyArray(t *testing.T) {
 func TestResolvedPlayersStopsOnAResolveError(t *testing.T) {
 	sentinel := errors.New("world save is unreadable")
 	var out bytes.Buffer
-	err := writeResolvedPlayers(&out, func(func(*resolve.Player) error) error { return sentinel })
+	err := writeResolvedArray(&out, resolvePlayers, func(func(any) error) error { return sentinel })
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("error = %v, want the resolve error", err)
 	}
@@ -132,8 +132,8 @@ func TestRunValidatesResolveFlags(t *testing.T) {
 	}{
 		{
 			name:      "unknown kind",
-			arguments: []string{"--resolve", "guild", "--saves", "dir"},
-			want:      "player|players|world",
+			arguments: []string{"--resolve", "base", "--saves", "dir"},
+			want:      "guild|guilds|player|players|world",
 		},
 		{
 			name:      "no directory",
@@ -153,6 +153,16 @@ func TestRunValidatesResolveFlags(t *testing.T) {
 		{
 			name:      "an id where none is meaningful",
 			arguments: []string{"--resolve", "players", "--id", "abc", "--saves", "dir"},
+			want:      "does not accept --id",
+		},
+		{
+			name:      "guild without an id",
+			arguments: []string{"--resolve", "guild", "--saves", "dir"},
+			want:      "requires --id",
+		},
+		{
+			name:      "guilds with an id",
+			arguments: []string{"--resolve", "guilds", "--id", "abc", "--saves", "dir"},
 			want:      "does not accept --id",
 		},
 		{

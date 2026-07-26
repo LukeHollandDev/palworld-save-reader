@@ -18,16 +18,22 @@ import (
 // palworld's table means a change to that table has to be reflected
 // deliberately, and TestExpanderPathMatchesPalworldTable holds the two together.
 const (
-	itemSlotPath      = ".worldSaveData.ItemContainerSaveData.Value.Slots.Slots.RawData"
-	characterPath     = ".worldSaveData.CharacterSaveParameterMap.Value.RawData"
-	characterSlotPath = ".worldSaveData.CharacterContainerSaveData.Value.Slots.Slots.RawData"
+	itemSlotPath       = ".worldSaveData.ItemContainerSaveData.Value.Slots.Slots.RawData"
+	characterPath      = ".worldSaveData.CharacterSaveParameterMap.Value.RawData"
+	characterSlotPath  = ".worldSaveData.CharacterContainerSaveData.Value.Slots.Slots.RawData"
+	groupPath          = ".worldSaveData.GroupSaveDataMap.Value.RawData"
+	baseCampPath       = ".worldSaveData.BaseCampSaveData.Value.RawData"
+	workerDirectorPath = ".worldSaveData.BaseCampSaveData.Value.WorkerDirector.RawData"
 )
 
 func TestExpanderPathMatchesPalworldTable(t *testing.T) {
 	for path, want := range map[string]palworld.RawDataKind{
-		itemSlotPath:      palworld.RawDataItemSlot,
-		characterPath:     palworld.RawDataCharacter,
-		characterSlotPath: palworld.RawDataCharacterSlot,
+		itemSlotPath:       palworld.RawDataItemSlot,
+		characterPath:      palworld.RawDataCharacter,
+		characterSlotPath:  palworld.RawDataCharacterSlot,
+		groupPath:          palworld.RawDataGroup,
+		baseCampPath:       palworld.RawDataBaseCamp,
+		workerDirectorPath: palworld.RawDataWorkerDirector,
 	} {
 		if got := palworld.ClassifyRawData(path); got != want {
 			t.Errorf("palworld classifies %s as %v, want %v", path, got, want)

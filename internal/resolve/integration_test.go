@@ -231,6 +231,157 @@ func TestResolvedGuildIDsAreRealGroups(t *testing.T) {
 	}
 }
 
+// TestResolvedGuildsAccountForEveryPalAndPlayer is the phase-4 cross-check, and
+// the strongest one this package has.
+//
+// Three collections describe the same population by three routes: the guilds'
+// character handles, the containers the player saves name, and the containers the
+// base camps name. None of the three is derived from the others. Guild pals must
+// equal player pals plus base camp workers, and guild members must equal the
+// players who resolved -- which is what says the joins are right rather than
+// merely self-consistent.
+func TestResolvedGuildsAccountForEveryPalAndPlayer(t *testing.T) {
+	resolver := fixtureResolver(t)
+
+	var (
+		guilds        int
+		guildPals     int
+		guildPlayers  int
+		guildWorkers  int
+		guildBases    int
+		guildWarnings int
+		memberNames   = map[gvas.GUID]string{}
+		unnamed       int
+		guildIDs      = map[gvas.GUID]bool{}
+		workerSlots   = map[gvas.GUID]bool{}
+	)
+	if err := resolver.Guilds(func(guild *Guild) error {
+		guilds++
+		guildIDs[guild.GroupID] = true
+		guildPals += guild.Counts.Pals
+		guildPlayers += guild.Counts.Players
+		guildWorkers += guild.Counts.Workers
+		guildBases += len(guild.Bases)
+		guildWarnings += len(guild.Warnings)
+		for _, warning := range guild.Warnings {
+			t.Errorf("guild %s: %s", guild.GroupID, warning)
+		}
+		for _, member := range guild.Members {
+			if _, repeated := memberNames[member.PlayerUID]; repeated {
+				t.Errorf("an account is a member of two guilds")
+			}
+			memberNames[member.PlayerUID] = member.Name
+			if member.Name == "" {
+				unnamed++
+			}
+		}
+		for _, base := range guild.Bases {
+			// A base with no location means the camp record was not found, which
+			// would already have produced a warning; assert it anyway, because a
+			// silently location-less base is the shape a wrong offset would take.
+			if base.Location == nil {
+				t.Errorf("base %s has no location", base.ID)
+			}
+			for _, worker := range base.Workers {
+				if workerSlots[worker.InstanceID] {
+					t.Errorf("a pal works at two base camps")
+				}
+				workerSlots[worker.InstanceID] = true
+				if worker.Location != PalAtBase {
+					t.Errorf("a base camp worker has location %q", worker.Location)
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if guilds == 0 {
+		t.Fatal("the fixture world resolved no guilds")
+	}
+
+	var playerPals, players int
+	guildNames := map[gvas.GUID]string{}
+	if err := resolver.Players(func(player *Player) error {
+		players++
+		playerPals += len(player.Pals)
+		if player.Guild == nil {
+			t.Errorf("player %s has no guild", player.PlayerUID)
+			return nil
+		}
+		if !guildIDs[player.Guild.ID] {
+			t.Errorf("player %s names a guild that did not resolve", player.PlayerUID)
+		}
+		if player.Guild.Name == "" || player.Guild.MemberCount == 0 {
+			t.Errorf("player %s has guild %+v, want a name and a member count",
+				player.PlayerUID, player.Guild)
+		}
+		guildNames[player.Guild.ID] = player.Guild.Name
+		// The name in the guild's own record and the name in the character record
+		// are two independent statements about the same person.
+		if player.Character != nil {
+			if want, listed := memberNames[player.PlayerUID]; listed && want != player.Character.Nickname {
+				t.Errorf("player %s is %q in their record and %q in their guild",
+					player.PlayerUID, player.Character.Nickname, want)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Logf("guilds=%d bases=%d members=%d unnamed=%d guildPals=%d guildPlayers=%d workers=%d warnings=%d",
+		guilds, guildBases, len(memberNames), unnamed, guildPals, guildPlayers, guildWorkers, guildWarnings)
+	t.Logf("players=%d playerPals=%d playerPals+workers=%d", players, playerPals, playerPals+guildWorkers)
+
+	if guildPlayers != players || len(memberNames) != players {
+		t.Errorf("%d guild handles carry an account, %d accounts are members, %d players resolved",
+			guildPlayers, len(memberNames), players)
+	}
+	if unnamed != 0 {
+		t.Errorf("%d guild members have no name", unnamed)
+	}
+	// The heart of it: every pal a guild claims is either in a player's containers
+	// or at one of the guild's base camps, and nothing is counted twice.
+	if playerPals+guildWorkers != guildPals {
+		t.Errorf("%d player pals plus %d base camp workers is not the %d pals the guilds claim",
+			playerPals, guildWorkers, guildPals)
+	}
+	if len(workerSlots) != guildWorkers {
+		t.Errorf("%d distinct workers for %d worker slots", len(workerSlots), guildWorkers)
+	}
+	if len(guildNames) != guilds {
+		t.Logf("%d of %d guilds have a member with a save file", len(guildNames), guilds)
+	}
+}
+
+// TestGuildMatchesTheWholeSetResolve is the guild half of the two-entry-point
+// check: resolving one guild filters the same scan, and must not change the
+// answer.
+func TestGuildMatchesTheWholeSetResolve(t *testing.T) {
+	resolver := fixtureResolver(t)
+
+	var all []*Guild
+	if err := resolver.Guilds(func(guild *Guild) error {
+		all = append(all, guild)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(all) == 0 {
+		t.Fatal("the fixture world resolved no guilds")
+	}
+	for _, want := range all {
+		got, err := resolver.Guild(want.GroupID)
+		if err != nil {
+			t.Fatalf("guild %s resolved in the set but not alone: %v", want.GroupID, err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("guild %s differs between the two paths", want.GroupID)
+		}
+	}
+}
+
 // TestPlayerMatchesTheWholeSetResolve checks the two entry points agree. Resolving
 // one player takes a different path through the same scan -- a smaller wanted set
 // -- and a difference between them would mean the filtering changes the answer

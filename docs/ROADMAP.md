@@ -1,8 +1,8 @@
 # Roadmap: nested decoding, package layout, and automatic joins
 
-Status: **phases 0 to 3 are done**; phase 4 is not started. Written 2026-07-25
-against the working tree that narrows the decoder to Palworld 1.X and names the
-executable `palworld-save-reader`.
+Status: **phases 0 to 4 are done**; nothing after phase 4 is planned yet. Written
+2026-07-25 and revised 2026-07-26 against the working tree that narrows the decoder
+to Palworld 1.X and names the executable `palworld-save-reader`.
 
 The executable is named for the module and repository exactly. A short name was
 considered and rejected: the reason to prefer one was distance from the old
@@ -35,7 +35,7 @@ thing resolves all nine players, their 2,080 pals and their 467 item stacks in
 
 ## What is actually in the way
 
-### Three, plus one still bespoke, flavours of `RawData`
+### Five flavours of `RawData`
 
 Most interesting world-save content sits in `RawData` byte arrays that the
 decoder currently surfaces as base64. They are not one format:
@@ -45,7 +45,8 @@ decoder currently surfaces as base64. They are not one format:
 | Fixed record | `ItemContainerSaveData` slots | `uint32 slotIndex`, `uint32 count`, `FString itemId`, 16 zero bytes, 16-byte dynamic-item id, trailer | **Decoded** in phase 1; see below |
 | Nested GVAS | `CharacterSaveParameterMap` values | A complete Unreal property stream with no header: one `SaveParameter` / `StructProperty` / `PalIndividualCharacterSaveParameter`, then a 24-byte trailer | **Decoded** in phase 2; see below |
 | Flat reference | `CharacterContainerSaveData` slots | An `FPalInstanceID` written flat: 16-byte player uid, 16-byte instance id, then six bytes | **Decoded** in phase 3; see below |
-| Bespoke binary | `GroupSaveDataMap` values | Opens with a 16-byte GUID then counters; no GVAS framing | **Unverified.** Needs reverse engineering |
+| Bespoke binary | `GroupSaveDataMap` values | A 16-byte id, an Unreal string, a counted array of character handles, then a guild record for a guild and four zero bytes for a faction | **Decoded** in phase 4; see below |
+| Bespoke binary | `BaseCampSaveData` values and their `WorkerDirector` | An id, a string, a state byte, two `FTransform`s, a radius, the owning guild, and the map object the camp is built around | **Decoded** in phase 4; see below |
 
 ### What phase 1 found
 
@@ -187,10 +188,127 @@ dashed form the documents print and the dash-free form Palworld names a player's
 save file after. It is fuzzed against `String` for round-tripping, because an
 identifier that parses to the wrong value resolves to nothing rather than failing.
 
-The one thing phase 3 cannot deliver is the guild. `Guild` carries an id and
-nothing else, because `GroupSaveDataMap`'s payload is the bespoke layout phase 4
-still owes. That was known going in; it is recorded here because a document with a
-`guild.id` and no name looks like a bug otherwise.
+The one thing phase 3 could not deliver was the guild. `Guild` carried an id and
+nothing else, because `GroupSaveDataMap`'s payload was the bespoke layout phase 4
+owed. Phase 4 paid it: a player's `guild` now carries a name and a member count,
+and `--resolve guild` returns the rest.
+
+### What phase 4 found
+
+The group record was the last bespoke layout, and it came apart cleanly. Two group
+kinds share it — a `Guild`, which is a player's guild, and an `Organization`, which
+is one of the world's fixed factions — and only a guild carries the second half:
+
+```text
+16 bytes  group id            -- equals the map key in all 15 fixture records
+FString   name                -- "" for a faction; for a guild, the admin's account id in hex
+uint32 n  n x 32-byte handle  -- 16-byte account id (zero for a pal) + 16-byte character id
+uint32    ?                   -- zero in all 15
+byte      organization type   -- 0 for all 8 guilds; 2 to 8, one each, for the 7 factions
+uint32 n  n x 16-byte base id -- keys BaseCampSaveData
+--- guild only ---
+uint32    ?                   -- zero in all 8
+int32     base camp level     -- 3 to 22 across the fixture guilds
+uint32 n  n x 16-byte point   -- one per base id; each is that camp's owner map object
+FString   guild name          -- "Unnamed Guild" until a player sets one
+16 bytes  ?                   -- an account id; see below
+14 bytes  ?                   -- byte-identical in all 8
+16 bytes  admin account id
+uint32 n  n x member          -- account id, int64 last-online, FString name, role byte
+30 bytes  ?                   -- byte-identical in all 8
+```
+
+Whether the guild half is there is stated by the sibling `GroupType` property, not
+by the record, so decoding is two calls: `DecodeGroup` reads the shared part and
+hands back the remainder, and `DecodeGuild` reads the remainder. Deciding it from
+the bytes left over would be a guess dressed up as a decoder — and the CLI's
+`--decode-raw`, which sees a path and a blob but no sibling property, is exactly the
+caller that has to guess. It attempts the guild half and reports it when it decodes,
+which is safe only because `DecodeGuild` is strict enough to reject a faction's
+four-byte remainder. A test asserts it does.
+
+The base camp record has no such ambiguity:
+
+```text
+16 bytes  id                  -- equals the map key in all 19 fixture camps
+FString   name                -- UTF-16 in all 19: the game's Japanese default
+1 byte    state               -- 1 in all 19
+80 bytes  FTransform          -- ten float64s, rotation first; translation is the camp's position
+4 bytes   area range          -- float32, 3500 in all 19
+16 bytes  owning guild
+80 bytes  FTransform          -- fast-travel, in local space
+16 bytes  owner map object id
+4 bytes                       -- zero in all 19
+```
+
+Four things are worth recording.
+
+- **Every id names something, and most name each other.** A guild's `baseIds` are
+  base camps, and each camp's own record names the guild back: 19 references, 19
+  camps, no disagreements. A guild's `basePoints` are the camps' owner map objects,
+  one for one. That is the standard phases 1 to 3 set — sixteen bytes read at the
+  wrong offset are a plausible GUID — and it is much harder to satisfy in both
+  directions than in one.
+- **A guild's handles are the whole character population, partitioned.** The eight
+  guilds list 3,349 characters between them, each exactly once, and the world save
+  holds exactly 3,349 character records. The 9 handles carrying a non-zero account id
+  are exactly the 9 players, and exactly the 9 guild members. Three counts of two
+  populations, none derived from the others.
+- **The worker director closes phase 3's open question.** Each base camp's
+  `WorkerDirector` names a character container, and those 19 containers hold 205
+  pals — precisely the pals no player owns. 3,135 pals sit in a player's party or box
+  and 205 at a base, which is every one of the world's 3,340. Phase 3 could count the
+  base camp workers but not attribute them; now `--resolve guild` reports them with
+  their species, level and talents.
+- **A rotation is the cheapest possible offset check.** An `FTransform` read at the
+  wrong offset does not produce a unit quaternion. All 38 rotations in the fixture
+  world's camps and directors are unit quaternions to within 0.001, which says the
+  80-byte block is what this thinks it is without needing to know what any of the
+  values mean.
+
+Two fields are read and reported without being understood. The 14 bytes before the
+admin and the 30 after the members are byte-identical in all eight fixture guilds;
+the 30 are even legible as a count of three followed by three byte-keyed lists, but
+legible is not decoded, so they are preserved as opaque bytes and a test asserts
+they do not vary. Dropping them would make a change in them invisible.
+
+The third is more interesting. There is an account id immediately before the admin's,
+and it is **zero in exactly the three fixture guilds still called "Unnamed Guild"
+and equal to the admin in the other five**. An exact correlation across eight guilds
+is evidence, not a decoding, so the field is called `NamedBy`, documented as an
+inference, and nothing depends on it.
+
+`lastOnline` on a member is not a date. It is measured in the same clock as
+`worldSaveData.GameTimeSaveData.RealDateTimeTicks` — elapsed real time since the
+world began — and the check is that two members carry *exactly* the world's current
+value, because they were online when the save was written. Reading it as a date
+would have put it in the year 1, the same trap phase 3 hit with game time.
+
+Phase 4 also found a defect in phase 3 rather than in the game. A container slot can
+reference a character the save no longer holds, and the resolver dropped such a slot
+silently. It is not hypothetical: 7 of the fixture world's 3,347 slot references name
+no record. All 7 sit in containers nothing points at, so no resolve reaches one, but
+the case is now a warning in both the player and the guild path — the difference
+between "no pals" and "the pal is gone" belongs in the output.
+
+### The fixture world moved
+
+Phases 1 to 3 were measured against one save of the fixture world. Phase 4 was
+measured against a later save of the same world, because the directory it lived in
+became a running server and the file is now rewritten every few minutes; the figures
+here come from an immutable backup rather than the live file.
+
+That is not just bookkeeping. Between the two saves the world grew from 2,259
+characters to 3,349 and from 16 base camps to 19, and it acquired the 7 dangling
+slot references above — which **broke a test**. Phase 3 asserted that every
+container slot reference in the save resolves, which was true of the save it was
+written against. The assertion is now the invariant that actually holds: every
+reference a player or a base camp can reach resolves, and together they reach every
+pal. A fixture that changes under a test is a good way to find out that the test
+was describing a sample rather than a rule.
+
+Figures quoted in phase 1 to 3 sections are left as they were measured. Where a
+count appears in both, the phase 4 number is the current one.
 
 ### Where R2 and R3 pull against each other
 
@@ -229,6 +347,14 @@ Measured on the fixture world, cumulatively:
 | `--decode-raw`, phase 2 | 270,196,593 B (+20.7%) |
 | `--decode-raw`, phase 3 | 270,817,593 B (+21.0%) |
 
+Phase 4 is not a row in that table, because it was measured on a later save of the
+same world and the two are not comparable at that precision. On the phase 4 save,
+`--full` is 265,629,318 B and `--full --decode-raw` is 334,515,321 B (+25.9%), of
+which the three layouts phase 4 added account for 567,157 B — 15 groups, 19 camps
+and 19 worker directors are a rounding error next to 34,187 item slots and 3,349
+character records. What matters is that all six layouts covered 40,936 of that
+save's 273,120 blobs and **not one of them failed to decode**.
+
 Character blobs are ~3.4KB of dense property data, so they cost far more JSON per
 blob than the item slots did despite being twelve times fewer; the phase 3
 references are 38 bytes each and barely register. Without the flag the output is
@@ -238,13 +364,17 @@ byte-identical to before all three phases — 223,826,982 bytes, sha256
 Times are quoted separately because the earlier rows were single measurements
 taken on separate runs and are not comparable with each other at that precision.
 Re-measured together on the phase 3 tree, two runs each: `--full` 1.07s and
-`--full --decode-raw` 1.28s, both peaking around 1.6GB of RSS.
+`--full --decode-raw` 1.28s, both peaking around 1.6GB of RSS. On the phase 4 save:
+1.27s and 1.57s, peaking at 1.7GB and 2.0GB.
 
-That 1.6GB is worth stating plainly, because it is the number `--resolve` exists to
-avoid. `--full` materialises the whole tree as JSON-ready values; a resolve of all
-nine players on the same file takes **0.08s and peaks at 124MB**, and a peak-heap
-test now fails the build if that regresses. The mode that answers the useful
-question is two orders of magnitude cheaper than the mode that dumps everything.
+That 1.7GB is worth stating plainly, because it is the number `--resolve` exists to
+avoid. `--full` materialises the whole tree as JSON-ready values. On the same file,
+resolving all nine players takes **0.12s and peaks at 160MB**, and resolving all
+eight guilds with their 19 bases and 205 workers takes **0.06s and 108MB** — the
+guild mode is cheaper than the player mode because it reads no player saves at all.
+Peak-heap tests fail the build if either regresses. The modes that answer the useful
+questions are an order of magnitude faster and an order of magnitude smaller than
+the mode that dumps everything.
 
 Where the blobs are, from a walk of the fixture world:
 
@@ -257,8 +387,21 @@ Where the blobs are, from a walk of the fixture world:
 | `CharacterSaveParameterMap.Value` | 2,259 | 2,628–4,140 | **2, done** |
 | `ItemContainerSaveData.Value` | 8,723 | — | — |
 | `DynamicItemSaveData` | 581 | 57–1,518 | — |
-| `GroupSaveDataMap.Value` | 15 | 39–16,287 | **4** |
-| `BaseCampSaveData` (several sub-paths) | 192 | 0–1,512 | **4** |
+| `GroupSaveDataMap.Value` | 15 | 37–16,286 | **4, done** |
+| `BaseCampSaveData` (several sub-paths) | 192 | 0–1,512 | **4, partly** |
+
+Those counts are the phase 1 walk, kept for comparison; the phase 4 save holds
+273,120 blobs rather than 111,579, mostly more item containers. Two things in the
+phase 4 row are worth spelling out. `GroupSaveDataMap`'s smallest blob is 37 bytes,
+not the 39 phase 1 recorded — a faction with no members is 16 + 4 + 4 + 1 + 4 + 4 —
+and only three of the twelve blobs a base camp holds are decoded. The other nine are
+its `ModuleMap` entries, keyed by `EPalBaseCampModuleType`, and its `WorkCollection`.
+
+The work collection was deliberately left alone. It parses cleanly on all 19 camps —
+a camp id, a counted array of ids, four zero bytes — but its 488 references can only
+be checked against `WorkSaveData`'s own undecoded `RawData`, and shipping a decoder
+whose join nobody has verified is exactly what phases 1 to 3 refused to do. It is a
+candidate for a later phase, not a gap in this one.
 
 The 2,250 `CharacterContainerSaveData` slots and the 2,250 pal records are the
 same population counted two ways, which phase 3 used as its first cross-check:
@@ -396,13 +539,20 @@ path, so a consumer walks a nested character exactly as it walks anything else a
 a `RawData` nested deeper still would be classified by where it actually sits.
 
 Phase 3 was the third layout, and it was exactly a table entry plus a decoder, as
-predicted. Phase 4's should be the same.
+predicted. Phase 4 was three more table entries and three more decoders, plus a
+shared reader for the bespoke encoding: the group and base camp records interleave
+counted arrays, Unreal strings and transforms, which is more than a handful of named
+offsets can state legibly. `palworld/record.go` is that reader — sticky error, every
+read bounds-checked, every array count checked against the bytes left before
+anything is allocated, and fuzzed for 24 million executions because a `RawData` blob
+is untrusted input.
 
-Phase 3 also added the mode this was all for:
+Phase 3 also added the mode this was all for, and phase 4 completed it:
 
 ```text
 palworld-save-reader --resolve player --id UID --saves DIR
-palworld-save-reader --resolve players|world --saves DIR
+palworld-save-reader --resolve guild --id GROUPID --saves DIR
+palworld-save-reader --resolve players|guilds|world --saves DIR
 ```
 
 | KIND | Returns | State |
@@ -410,8 +560,8 @@ palworld-save-reader --resolve players|world --saves DIR
 | `player` | One fully resolved player; `--id` takes a player UID | **done** |
 | `players` | Every player in the save set | **done** |
 | `world` | World metadata, in-game time, and entity counts | **done** |
-| `guild` | One guild with members; `--id` takes a group id | phase 4 |
-| `guilds` | Every guild | phase 4 |
+| `guild` | One guild with its members, bases and workers; `--id` takes a group id | **done** |
+| `guilds` | Every guild | **done** |
 
 `--saves DIR` discovers `Level.sav`, `LevelMeta.sav` and `Players/*.sav`, so a
 caller points at a save directory rather than naming files. `--id` accepts a player
@@ -420,9 +570,12 @@ each player save rather than against the file name — the name is a convention,
 property is the fact.
 
 Every answer is wrapped in a versioned envelope, `{"resolveVersion", "kind",
-<kind>}`, where the payload field is named for the kind. `--resolve players`
-streams its array element by element; the single-document kinds go out through
-`encoding/json` unchanged. A resolved player document is composed, not projected:
+<kind>}`, where the payload field is named for the kind. `--resolve players` and
+`--resolve guilds` stream their arrays element by element through one shared writer;
+the single-document kinds go out through `encoding/json` unchanged. The version is
+now 2: the guild document arrived and a player's guild gained a name, which is
+additive, but a consumer that branches on "does a player's guild have a name" needs
+a number to branch on. A resolved player document is composed, not projected:
 
 ```json
 {
@@ -431,7 +584,7 @@ streams its array element by element; the single-document kinds go out through
   "position": { "x": …, "y": …, "z": … },
   "technologyPoints": …,
   "character": { "nickname": "…", "level": …, "exp": …, "hp": …, "fullStomach": … },
-  "guild": { "id": "…" },
+  "guild": { "id": "…", "name": "…", "memberCount": … },
   "inventory": {
     "common":    [ { "slot": 0, "itemId": "Money", "count": 70434 }, … ],
     "dropSlot": [ … ], "essential": [ … ], "weapons": [ … ], "armor": [ … ], "food": [ … ]
@@ -445,14 +598,36 @@ streams its array element by element; the single-document kinds go out through
 }
 ```
 
-Two departures from the sketch this section used to carry. `guild` has an id and
-nothing else, because the name and member count need phase 4. And every document
-can carry `warnings`, which the sketch had no place for: a join that finds nothing
-says so, because "no pals" and "the pal container is missing from the world save"
-are otherwise the same output. The fields are grouped by provenance —
-`playerUId` to `technologyPoints` from the player's own save, `character`, `guild`
-and `pals` from the world save — since that is what a reader needs to know when a
-section is absent.
+One departure from the sketch this section used to carry: every document can carry
+`warnings`, which the sketch had no place for. A join that finds nothing says so,
+because "no pals" and "the pal container is missing from the world save" are
+otherwise the same output. The fields are grouped by provenance — `playerUId` to
+`technologyPoints` from the player's own save, `character`, `guild` and `pals` from
+the world save — since that is what a reader needs to know when a section is absent.
+
+The other departure, `guild` carrying an id and nothing else, is closed. Phase 4
+gave it a name and a member count for one extra pass over a 15-entry collection, and
+added the guild document itself:
+
+```json
+{
+  "groupId": "…", "name": "…", "admin": "…", "baseCampLevel": …,
+  "members": [ { "playerUId": "…", "name": "…",
+                 "lastOnline": { "ticks": …, "seconds": …, "days": … }, "role": 1 }, … ],
+  "bases":   [ { "id": "…", "name": "…", "location": { "x": …, "y": …, "z": … },
+                 "areaRange": 3500, "ownerMapObjectId": "…",
+                 "workers": [ { "instanceId": "…", "species": "…", "location": "base", … }, … ] }, … ],
+  "counts": { "characters": …, "players": …, "pals": …, "bases": …, "workers": … },
+  "warnings": [ … ]
+}
+```
+
+`counts` comes from the group's own handle list rather than from the join, which is
+what makes it a check on the join rather than a summary of it. A guild resolve reads
+the world save and nothing else — no `player.sav` is opened — because the group
+record carries its members' names itself. That makes it the mode to use on a server
+whose player files you do not have, and a test asserts it works with `Players/`
+absent entirely.
 
 ## Keep projection dumb
 
@@ -482,16 +657,18 @@ These are requirements, not aspirations, and R4 makes them enforceable.
   are requested. Collect the wanted id set first, then fill it in during a single
   scan — resolving nine players must not scan 8,723 containers nine times. Read the
   collections in dependency order rather than file order; each is independently
-  addressed, so this is free.
+  addressed, so this is free. A guild resolve is the longest such chain: groups name
+  base camps, camps name worker containers, containers name character records, and
+  the character records come *first* in the file.
 - **R3** Stream output. `--resolve players` encodes each element as it is
   produced rather than building the whole array first. See the note above on where
   this and R2 pull against each other.
-- **R4** A CI test asserts peak heap stays under a fixed budget while resolving
-  the whole fixture save set, so a regression to eager decoding fails the build.
-  Held at 320MB against a measured 111MB. It catches an R1 violation, which is the
-  expensive one; the wanted-id discipline of R2 is too cheap to show up in a heap
-  budget, so it is checked separately by comparing allocations for one player
-  against all nine.
+- **R4** CI tests assert peak heap stays under a fixed budget while resolving the
+  whole fixture save set, so a regression to eager decoding fails the build. Held at
+  320MB against a measured 137MB for players and 94MB for guilds. They catch an R1
+  violation, which is the expensive one; the wanted-id discipline of R2 is too cheap
+  to show up in a heap budget, so it is checked separately by comparing allocations
+  for one player against all nine, and for one guild against all eight.
 
 ## Phases
 
@@ -501,17 +678,29 @@ These are requirements, not aspirations, and R4 makes them enforceable.
 | 1 | `palworld/itemslot.go`: item-slot decoding, lazily; `--full` opt-in flag | S | Container contents visible | **done** |
 | 2 | `gvas.ParseProperties` and `palworld/character.go`: nested property streams via a re-entrant call | M | Pal and character detail — the big one | **done** |
 | 3 | `palworld/characterslot.go`, `internal/resolve` + `--resolve player\|players\|world`; R1–R4 | M | The automatic joins | **done** |
-| 4 | `GroupSaveDataMap` and `BaseCampSaveData` reverse engineering; `--resolve guild\|guilds` | ? | Guilds and bases | next |
+| 4 | `palworld/record.go`, `group.go`, `basecamp.go`: `GroupSaveDataMap` and `BaseCampSaveData` reverse engineering; `--resolve guild\|guilds` | M | Guilds, bases, and the pals no player owns | **done** |
 
 Phase 0 went first because phases 1–4 need `palworld/` and `resolve/` to exist;
 adding them alongside `internal/palsav` would have been incoherent. It is a large
 diff but a mechanical one — review with `git diff --find-renames`.
 
+Phase 4 came in at the short end of its unestimated range: the group record gave up
+its shape in an afternoon, mostly because every field it contains is an id that
+either resolves against another collection or does not. What is left undecoded after
+it is listed under Volume above — map objects, foliage, work assignments, dynamic
+items, base camp modules — and none of it is needed to answer "what does this player
+have" or "what is in this guild", which were the questions this roadmap set out to
+answer. Anything after this is a new goal rather than the rest of an old one.
+
 ## Risks
 
-- **Phase 4 is unestimated** because the group blob layout is unverified. It may
+- ~~**Phase 4 is unestimated** because the group blob layout is unverified. It may
   be a short afternoon or a long slog; treat the phase table as four items plus
-  one unknown.
+  one unknown.~~ The short end. The record opens with its own id, which matches the
+  map key, and every subsequent field is a counted array or a string, so each guess
+  was immediately falsifiable against 15 records. The part that took longest was not
+  the layout but deciding what *not* to claim: three runs of bytes and one account id
+  are read and reported without being understood, rather than named after a guess.
 - **Semantic drift.** Once `--resolve` names things like `pals` and `inventory`,
   a Palworld update can change what those mean. Mitigation: keep `--full`,
   `--schema` and `--preset` semantics-free so there is always a raw escape hatch,
@@ -537,9 +726,18 @@ diff but a mechanical one — review with `git diff --find-renames`.
   `Exp`, but the same trap applies to every numeric field added later, and getting
   it wrong produces a plausible wrong answer rather than an error.
 - **Fixture coverage.** All of this is verified against one world and nine player
-  saves from `1.0.1.100619`. Guild and base work in particular would benefit from
-  a save set with more social structures in it. Every resolve figure quoted here
-  comes from that one world; the two-player synthetic save set built in
-  `internal/resolve`'s tests covers the shapes it does not contain — a container
-  missing from the world save, a pal owned by nobody, a record with no `Level` —
-  but it is a description of the format rather than evidence about the game.
+  saves from `1.0.1.100619`, now at two points in that world's life. Every resolve
+  figure quoted here comes from it; the synthetic save sets built in
+  `internal/resolve`'s tests cover the shapes it does not contain — a container
+  missing from the world save, a pal owned by nobody, a record with no `Level`, a
+  base camp naming another guild, a guild whose base camp is gone — but they are a
+  description of the format rather than evidence about the game. The gap phase 4
+  leaves is the same one phase 3 did, narrowed: the fixture world has eight guilds
+  but only one with more than a single member, so `role` has exactly two observed
+  values and the member ordering is barely exercised. A world with real multi-member
+  guilds would be worth more than any amount of further reading of this one.
+- **A live fixture is not a fixed fixture.** The save directory is now a running
+  server, so the world changes between measurements and a test written against a
+  snapshot can start failing on facts about the game rather than about the code —
+  which is what happened to phase 3's slot-reference assertion. Measure from an
+  immutable backup, and write assertions about relationships rather than counts.

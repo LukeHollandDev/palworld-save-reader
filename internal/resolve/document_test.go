@@ -125,8 +125,12 @@ func TestPlayerJSONShapeIsStable(t *testing.T) {
 
 // TestVersionIsTheShapesOwn guards the one thing a consumer keys off. It is not
 // the save's version, which is reported separately in World.
+//
+// It went from 1 to 2 when the guild document arrived: GroupSaveDataMap became
+// readable, so a player's guild gained a name and a member count, and "guild"
+// became a kind of its own.
 func TestVersionIsTheShapesOwn(t *testing.T) {
-	if Version != 1 {
+	if Version != 2 {
 		t.Errorf("Version = %d; changing it is a deliberate break, so update this test with the reason", Version)
 	}
 }

@@ -39,6 +39,15 @@ const (
 	// worker list: a reference to a character record rather than a record. See
 	// CharacterSlot.
 	RawDataCharacterSlot
+	// RawDataGroup is a guild or an organization: a bespoke record whose second
+	// half is present only for a guild. See Group and Guild.
+	RawDataGroup
+	// RawDataBaseCamp is a guild's base camp: where it is and who owns it. See
+	// BaseCamp.
+	RawDataBaseCamp
+	// RawDataWorkerDirector is a base camp's worker director, which names the
+	// container holding the camp's workers. See WorkerDirector.
+	RawDataWorkerDirector
 )
 
 func (kind RawDataKind) String() string {
@@ -49,6 +58,12 @@ func (kind RawDataKind) String() string {
 		return "character"
 	case RawDataCharacterSlot:
 		return "characterSlot"
+	case RawDataGroup:
+		return "group"
+	case RawDataBaseCamp:
+		return "baseCamp"
+	case RawDataWorkerDirector:
+		return "workerDirector"
 	default:
 		return "unknown"
 	}
@@ -58,9 +73,12 @@ func (kind RawDataKind) String() string {
 // reports for its own contents, so they are named once here rather than
 // repeated at the point of use.
 const (
-	itemSlotRawDataPath      = ".worldSaveData.ItemContainerSaveData.Value.Slots.Slots.RawData"
-	characterRawDataPath     = ".worldSaveData.CharacterSaveParameterMap.Value.RawData"
-	characterSlotRawDataPath = ".worldSaveData.CharacterContainerSaveData.Value.Slots.Slots.RawData"
+	itemSlotRawDataPath       = ".worldSaveData.ItemContainerSaveData.Value.Slots.Slots.RawData"
+	characterRawDataPath      = ".worldSaveData.CharacterSaveParameterMap.Value.RawData"
+	characterSlotRawDataPath  = ".worldSaveData.CharacterContainerSaveData.Value.Slots.Slots.RawData"
+	groupRawDataPath          = ".worldSaveData.GroupSaveDataMap.Value.RawData"
+	baseCampRawDataPath       = ".worldSaveData.BaseCampSaveData.Value.RawData"
+	workerDirectorRawDataPath = ".worldSaveData.BaseCampSaveData.Value.WorkerDirector.RawData"
 )
 
 // rawDataPaths maps a decoded property path to the layout of the RawData found
@@ -74,9 +92,12 @@ const (
 // layout is one line plus a decoder, and makes the set of decoded locations
 // something a test can enumerate.
 var rawDataPaths = map[string]RawDataKind{
-	itemSlotRawDataPath:      RawDataItemSlot,
-	characterRawDataPath:     RawDataCharacter,
-	characterSlotRawDataPath: RawDataCharacterSlot,
+	itemSlotRawDataPath:       RawDataItemSlot,
+	characterRawDataPath:      RawDataCharacter,
+	characterSlotRawDataPath:  RawDataCharacterSlot,
+	groupRawDataPath:          RawDataGroup,
+	baseCampRawDataPath:       RawDataBaseCamp,
+	workerDirectorRawDataPath: RawDataWorkerDirector,
 }
 
 // ClassifyRawData reports which RawData layout sits at a decoded property path.

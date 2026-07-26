@@ -16,7 +16,12 @@ import (
 // save rather than a view of it. A consumer therefore needs to know when the
 // shape changes, and that is what this number is for. The save's own version and
 // revision are separate, and reported in World.
-const Version = 1
+//
+// Version 2 added the guild document and gave a player's guild a name and a
+// member count, which version 1 could not supply because GroupSaveDataMap was
+// not decoded. Both changes only add fields, but a consumer that branches on
+// "does a player's guild have a name" needs a number to branch on.
+const Version = 2
 
 // Player is one resolved player: their own save joined to the world save.
 //
@@ -34,7 +39,7 @@ type Player struct {
 	TechnologyPoints *int32     `json:"technologyPoints,omitempty"`
 
 	Character *Character `json:"character,omitempty"`
-	Guild     *Guild     `json:"guild,omitempty"`
+	Guild     *GuildRef  `json:"guild,omitempty"`
 	Inventory Inventory  `json:"inventory"`
 	Pals      []Pal      `json:"pals"`
 
@@ -62,15 +67,93 @@ type Character struct {
 	FullStomach float32 `json:"fullStomach,omitempty"`
 }
 
-// Guild is the group a player belongs to, identified by the group id carried in
-// their character record's framing.
+// GuildRef is the guild a player belongs to, as much of it as a player document
+// needs: the group id from their character record's framing, and the name and
+// size the group record adds.
 //
-// Only the id is available: a guild's name and member list live in
-// GroupSaveDataMap, whose RawData is a bespoke binary layout that is not decoded
-// yet. Reporting the id alone is the honest half -- it is a verified join key,
-// and every one in the fixture world names a real group.
-type Guild struct {
+// The name costs one extra pass over GroupSaveDataMap, which holds 15 entries in
+// the fixture world against the character map's 3,349 -- cheap enough that
+// answering "which guild" with an opaque id would be a worse trade. Ask for the
+// guild itself to get its bases and members.
+type GuildRef struct {
 	ID gvas.GUID `json:"id"`
+	// Name is the guild's display name, absent when the group record could not be
+	// read. "Unnamed Guild" is a real value: it is what Palworld stores until a
+	// guild is named.
+	Name string `json:"name,omitempty"`
+	// MemberCount is how many accounts the guild lists.
+	MemberCount int `json:"memberCount,omitempty"`
+}
+
+// Guild is one resolved guild: who is in it, where its bases are, and which pals
+// work at them.
+//
+// Everything here comes from the world save alone -- no player.sav is read, and
+// none is needed. A guild record carries its members' names, which is the second
+// place in a save where a player's name can be found and the only one that gives
+// you the names of players whose saves you are not reading.
+type Guild struct {
+	GroupID gvas.GUID `json:"groupId"`
+	Name    string    `json:"name,omitempty"`
+	// Admin is the account that runs the guild. It is also the id Palworld uses
+	// as the group's internal name.
+	Admin *gvas.GUID `json:"admin,omitempty"`
+	// BaseCampLevel is the guild's base camp level, which is guild-wide rather
+	// than per base.
+	BaseCampLevel int32         `json:"baseCampLevel"`
+	Members       []GuildMember `json:"members"`
+	Bases         []Base        `json:"bases"`
+	Counts        GuildCounts   `json:"counts"`
+	// Warnings names each join that found nothing, in the order it was attempted.
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// GuildMember is one account in a guild, as the guild's own record describes it.
+type GuildMember struct {
+	PlayerUID gvas.GUID `json:"playerUId"`
+	Name      string    `json:"name,omitempty"`
+	// LastOnline is elapsed real time since the world began, not a date: it is
+	// measured in the same clock as World.RealTime, and a member who was online
+	// when the save was written carries exactly that value.
+	LastOnline *Elapsed `json:"lastOnline,omitempty"`
+	// Role is 1 for the admin of every fixture guild and 3 for the only
+	// non-admin member. The values are reported unmapped because two samples are
+	// not a decoding.
+	Role uint8 `json:"role"`
+}
+
+// Base is one of a guild's base camps.
+type Base struct {
+	ID   gvas.GUID `json:"id"`
+	Name string    `json:"name,omitempty"`
+	// Location is the camp's position, on the same scale as a player's.
+	Location *Position `json:"location,omitempty"`
+	// AreaRange is the camp's radius in world units.
+	AreaRange float32 `json:"areaRange,omitempty"`
+	// OwnerMapObjectID is the map object the camp is built around, which the
+	// guild record also lists among its base points. The object's own record is
+	// in MapObjectSaveData, which is not decoded, so nothing here says what the
+	// object is.
+	OwnerMapObjectID *gvas.GUID `json:"ownerMapObjectId,omitempty"`
+	// Workers are the pals assigned to the camp. They are the pals no player
+	// owns: in the fixture world 205 pals sit in these containers and 3,135 sit
+	// in a player's party or box, which together are every one of the save's
+	// 3,340 pals.
+	Workers []Pal `json:"workers"`
+}
+
+// GuildCounts is the guild's population, counted from the character handles the
+// group record lists rather than from anything this tool joined. Players plus
+// Pals is Characters by construction; the value of the split is that Players
+// matches the member count and Pals matches what the containers hold.
+type GuildCounts struct {
+	Characters int `json:"characters"`
+	Players    int `json:"players"`
+	Pals       int `json:"pals"`
+	Bases      int `json:"bases"`
+	// Workers is how many of the guild's pals were found in its bases' worker
+	// containers.
+	Workers int `json:"workers"`
 }
 
 // Pal is one pal a player owns, joined from three places: the container slot
@@ -88,19 +171,21 @@ type Pal struct {
 	Exp      int64  `json:"exp"`
 	// HP is FixedPoint64 as stored, like Character.HP.
 	HP int64 `json:"hp"`
-	// Location is PalInParty or PalInStorage: which of the player's two
-	// character containers holds this pal.
+	// Location is PalInParty, PalInStorage or PalAtBase: which character
+	// container holds this pal.
 	Location      string   `json:"location"`
 	Slot          int32    `json:"slot"`
 	Talents       *Talents `json:"talents,omitempty"`
 	PassiveSkills []string `json:"passiveSkills,omitempty"`
 }
 
-// Where a pal sits. A player has exactly two character containers: the party
-// that follows them and the storage box behind them.
+// Where a pal sits. A player has exactly two character containers, the party
+// that follows them and the storage box behind them; a guild's base camp has one
+// more, holding the pals that work there and belong to no player.
 const (
 	PalInParty   = "party"
 	PalInStorage = "storage"
+	PalAtBase    = "base"
 )
 
 // Talents are a pal's individual values, 0-100.

@@ -15,6 +15,9 @@ func TestClassifyRawData(t *testing.T) {
 		".worldSaveData.ItemContainerSaveData.Value.Slots.Slots.RawData":      RawDataItemSlot,
 		".worldSaveData.CharacterSaveParameterMap.Value.RawData":              RawDataCharacter,
 		".worldSaveData.CharacterContainerSaveData.Value.Slots.Slots.RawData": RawDataCharacterSlot,
+		".worldSaveData.GroupSaveDataMap.Value.RawData":                       RawDataGroup,
+		".worldSaveData.BaseCampSaveData.Value.RawData":                       RawDataBaseCamp,
+		".worldSaveData.BaseCampSaveData.Value.WorkerDirector.RawData":        RawDataWorkerDirector,
 		// Neighbouring paths that must not be mistaken for a known layout: a
 		// container's own RawData, the property one level up, and the key side of
 		// a map whose value side is decoded. The item and character container
@@ -26,17 +29,28 @@ func TestClassifyRawData(t *testing.T) {
 		".worldSaveData.ItemContainerSaveData.Value.Slots.Slots":        RawDataUnknown,
 		".worldSaveData.CharacterContainerSaveData.Value.Slots.RawData": RawDataUnknown,
 		".worldSaveData.CharacterSaveParameterMap.Key.RawData":          RawDataUnknown,
+		// A base camp holds three RawData properties at three depths, and only two
+		// of the three are decoded. The work collection is the one that is not: it
+		// parses, but its references can only be checked against WorkSaveData's own
+		// undecoded RawData, so claiming it would be claiming a join nobody has
+		// verified.
+		".worldSaveData.BaseCampSaveData.Value.WorkCollection.RawData":  RawDataUnknown,
+		".worldSaveData.BaseCampSaveData.Value.ModuleMap.Value.RawData": RawDataUnknown,
+		".worldSaveData.GroupSaveDataMap.Key.RawData":                   RawDataUnknown,
 	} {
 		if got := ClassifyRawData(path); got != want {
 			t.Errorf("ClassifyRawData(%q) = %v, want %v", path, got, want)
 		}
 	}
 	for kind, want := range map[RawDataKind]string{
-		RawDataItemSlot:      "itemSlot",
-		RawDataCharacter:     "character",
-		RawDataCharacterSlot: "characterSlot",
-		RawDataUnknown:       "unknown",
-		RawDataKind(99):      "unknown",
+		RawDataItemSlot:       "itemSlot",
+		RawDataCharacter:      "character",
+		RawDataCharacterSlot:  "characterSlot",
+		RawDataGroup:          "group",
+		RawDataBaseCamp:       "baseCamp",
+		RawDataWorkerDirector: "workerDirector",
+		RawDataUnknown:        "unknown",
+		RawDataKind(99):       "unknown",
 	} {
 		if got := kind.String(); got != want {
 			t.Errorf("RawDataKind(%d).String() = %q, want %q", kind, got, want)
