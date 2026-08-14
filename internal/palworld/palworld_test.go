@@ -77,3 +77,17 @@ func TestTypeHintShape(t *testing.T) {
 		}
 	}
 }
+
+// TestRecoverPartyMapHints pins the two untagged GUID identities populated by
+// current saves. Without either hint, a GUID is misread as the first property
+// name of a generic struct and full traversal fails far from the missing hint.
+func TestRecoverPartyMapHints(t *testing.T) {
+	for _, path := range []string{
+		".worldSaveData.LevelObjectRecoverPartySaveData.Key",
+		".worldSaveData.LevelObjectRecoverPartySaveData.Value.PlayerLastUsedTimes.Key",
+	} {
+		if got := typeHints[path]; got != "Guid" {
+			t.Errorf("hint %s = %q, want Guid", path, got)
+		}
+	}
+}

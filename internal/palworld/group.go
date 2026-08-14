@@ -45,10 +45,10 @@ type Group struct {
 	// entries. It is read rather than taken from the key so a caller can check
 	// the two agree.
 	ID gvas.GUID
-	// Name is Palworld's internal name for the group. It is empty for all seven
-	// fixture organizations, and for a guild it is the admin's account id
-	// written as 32 hex digits -- not the guild's display name, which is in the
-	// guild half of the record.
+	// Name is Palworld's internal name for the group. It is empty for all fixture
+	// organizations. Most fixture guilds store the admin's account id as 32 hex
+	// digits, while a current fixture also carries an empty value. It is not the
+	// guild's display name, which is in the guild half of the record.
 	Name string
 	// Handles lists every character in the group.
 	Handles []CharacterHandle
@@ -127,9 +127,9 @@ type Guild struct {
 	// Name is the guild's display name, "Unnamed Guild" while it has not been
 	// set.
 	Name string
-	// Admin is the guild's admin. It is the account whose id Palworld also uses
-	// as Group.Name, and the member carrying Role 1, in all eight fixture
-	// guilds.
+	// Admin is the guild's admin and the member carrying Role 1 in the fixture
+	// guilds. Palworld usually also writes this account id as Group.Name, though
+	// current saves can leave that internal name empty.
 	Admin gvas.GUID
 	// Members lists the guild's players.
 	Members []GuildMember

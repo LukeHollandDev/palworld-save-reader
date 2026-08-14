@@ -15,6 +15,7 @@ only the fields another application needs.
 - Reports world metadata, timestamps, and entity counts
 - Expands complete saves into readable JSON
 - Decodes known item, character, group, and base-camp `RawData` layouts
+- Reads current and legacy Mermaid Huffman codebooks used by Palworld 1.X
 - Selects fields with versioned JSON projections and bundled presets
 - Preserves unknown data as base64 instead of discarding it
 - Applies bounded input, parser, collection, and projection limits
@@ -40,6 +41,14 @@ make build
 ```
 
 The executable is written to `bin/palworld-save-reader`.
+
+## Compatibility
+
+The reader accepts the `PlM`/`0x31` Oodle Mermaid container used by Palworld
+1.X, including both current and legacy Huffman code-length encodings. It is a
+read-only decoder and does not compress or modify saves. Because Palworld's
+untagged property schema can grow with game updates, complete-tree support is
+continuously checked against private current and historical save corpora.
 
 ## Resolve a save directory
 

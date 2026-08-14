@@ -236,14 +236,14 @@ func TestDecodeGroupAgainstWorldSave(t *testing.T) {
 				adminIsAMember = true
 			}
 		}
-		// The admin is named twice over: as its own field and as the group's
-		// internal name, which is the account id in hex.
+		// Most guilds repeat the admin's account id in the group's internal name,
+		// but current saves also contain a valid guild with that field empty.
 		if !guild.Admin.IsZero() {
 			if !adminIsAMember {
 				t.Errorf("the admin of guild %s is not one of its members", id)
 			}
-			if want := bareHex(guild.Admin); group.Name != want {
-				t.Errorf("guild %s has internal name %q, want the admin's id %q", id, group.Name, want)
+			if want := bareHex(guild.Admin); group.Name != "" && group.Name != want {
+				t.Errorf("guild %s has internal name %q, want empty or the admin's id %q", id, group.Name, want)
 			}
 		}
 	})

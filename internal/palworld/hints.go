@@ -8,7 +8,7 @@ package palworld
 
 // Palworld's legacy property tags omit the concrete identity of StructProperty
 // map keys/values and set elements. These hints cover the current save schema
-// exercised by the supplied July 2026 saves and the maintained Palworld tools.
+// exercised by the supplied 2026 saves and the maintained Palworld tools.
 var typeHints = map[string]string{
 	".worldSaveData.CharacterContainerSaveData.Key":                                                                    "StructProperty",
 	".worldSaveData.CharacterContainerSaveData.Value":                                                                  "StructProperty",
@@ -38,6 +38,8 @@ var typeHints = map[string]string{
 	".worldSaveData.GuildExtraSaveDataMap.Value":                                                                       "StructProperty",
 	".worldSaveData.LockGimmickSaveData.Key":                                                                           "Guid",
 	".worldSaveData.LockGimmickSaveData.Value":                                                                         "StructProperty",
+	".worldSaveData.LevelObjectRecoverPartySaveData.Key":                                                               "Guid",
+	".worldSaveData.LevelObjectRecoverPartySaveData.Value.PlayerLastUsedTimes.Key":                                     "Guid",
 	".worldSaveData.FishingSpotSaveData.Key":                                                                           "Guid",
 	".worldSaveData.FishingSpotSaveData.Value":                                                                         "StructProperty",
 	".worldSaveData.EnemyCampSaveData.EnemyCampStatusMap.Value":                                                        "StructProperty",

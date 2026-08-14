@@ -106,8 +106,8 @@ type GuildRef struct {
 type Guild struct {
 	GroupID gvas.GUID `json:"groupId"`
 	Name    string    `json:"name,omitempty"`
-	// Admin is the account that runs the guild. It is also the id Palworld uses
-	// as the group's internal name.
+	// Admin is the account that runs the guild. Palworld usually also stores this
+	// id as the group's internal name, but current saves can leave that field empty.
 	Admin *gvas.GUID `json:"admin,omitempty"`
 	// BaseCampLevel is the guild's base camp level, which is guild-wide rather
 	// than per base.
