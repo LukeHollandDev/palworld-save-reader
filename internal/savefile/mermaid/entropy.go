@@ -245,7 +245,7 @@ func readHuffmanCodebook(r *msbReader) ([2048]huffEntry, int, error) {
 		return lut, 0, err
 	}
 	if first == 0 {
-		return lut, 0, fmt.Errorf("mermaid: legacy Huffman code lengths are not used by the supported saves")
+		return readLegacyHuffmanCodebook(r)
 	}
 	second, err := r.read(1)
 	if err != nil {
@@ -345,6 +345,176 @@ func readHuffmanCodebook(r *msbReader) ([2048]huffEntry, int, error) {
 		return lut, 0, err
 	}
 	return lut, numSymbols, nil
+}
+
+func readLegacyHuffmanCodebook(r *msbReader) ([2048]huffEntry, int, error) {
+	var lut [2048]huffEntry
+	prefix := huffPrefixOriginal
+	symbols := make([]byte, 1280)
+
+	denseValue, err := r.read(1)
+	if err != nil {
+		return lut, 0, err
+	}
+	if denseValue == 0 {
+		numValue, readErr := r.read(8)
+		if readErr != nil {
+			return lut, 0, readErr
+		}
+		numSymbols := int(numValue)
+		if numSymbols == 0 {
+			return lut, 0, fmt.Errorf("mermaid: legacy Huffman codebook has no symbols")
+		}
+		if numSymbols == 1 {
+			symbol, symbolErr := r.read(8)
+			if symbolErr != nil {
+				return lut, 0, symbolErr
+			}
+			entry := huffEntry{symbol: byte(symbol), length: 1}
+			for i := range lut {
+				lut[i] = entry
+			}
+			return lut, numSymbols, nil
+		}
+		widthValue, widthErr := r.read(3)
+		if widthErr != nil {
+			return lut, 0, widthErr
+		}
+		width := int(widthValue)
+		if width > 4 {
+			return lut, 0, fmt.Errorf("mermaid: invalid legacy Huffman code-length width %d", width)
+		}
+		for i := 0; i < numSymbols; i++ {
+			symbol, symbolErr := r.read(8)
+			if symbolErr != nil {
+				return lut, 0, symbolErr
+			}
+			lengthValue, lengthErr := r.read(width)
+			if lengthErr != nil {
+				return lut, 0, lengthErr
+			}
+			length := int(lengthValue) + 1
+			if length > 11 {
+				return lut, 0, fmt.Errorf("mermaid: invalid legacy Huffman code length %d", length)
+			}
+			at := prefix[length]
+			if at < 0 || at >= len(symbols) {
+				return lut, 0, fmt.Errorf("mermaid: legacy Huffman symbol table overflow")
+			}
+			symbols[at] = byte(symbol)
+			prefix[length]++
+		}
+		if err := makeHuffmanLUT(&lut, prefix, symbols); err != nil {
+			return lut, 0, err
+		}
+		return lut, numSymbols, nil
+	}
+
+	forcedValue, err := r.read(2)
+	if err != nil {
+		return lut, 0, err
+	}
+	forced := int(forcedValue)
+	symbolAt := 0
+	numSymbols := 0
+	averageBitsX4 := 32
+	skipZerosValue, err := r.read(1)
+	if err != nil {
+		return lut, 0, err
+	}
+	skipZeros := skipZerosValue != 0
+	for symbolAt != 256 {
+		if !skipZeros {
+			zeros, gammaErr := readLegacyHuffmanGamma(r)
+			if gammaErr != nil {
+				return lut, 0, gammaErr
+			}
+			symbolAt += zeros
+			if symbolAt >= 256 {
+				break
+			}
+		}
+		skipZeros = false
+		run, gammaErr := readLegacyHuffmanGamma(r)
+		if gammaErr != nil {
+			return lut, 0, gammaErr
+		}
+		if symbolAt+run > 256 {
+			return lut, 0, fmt.Errorf("mermaid: legacy Huffman symbol run exceeds alphabet")
+		}
+		numSymbols += run
+		for i := 0; i < run; i++ {
+			length, lengthErr := readLegacyHuffmanLength(r, forced, averageBitsX4)
+			if lengthErr != nil {
+				return lut, 0, lengthErr
+			}
+			averageBitsX4 = length + ((3*averageBitsX4 + 2) >> 2)
+			at := prefix[length]
+			if at < 0 || at >= len(symbols) {
+				return lut, 0, fmt.Errorf("mermaid: legacy Huffman symbol table overflow")
+			}
+			symbols[at] = byte(symbolAt)
+			prefix[length]++
+			symbolAt++
+		}
+	}
+	if symbolAt != 256 || numSymbols < 2 {
+		return lut, 0, fmt.Errorf("mermaid: invalid legacy Huffman symbol ranges")
+	}
+	if err := makeHuffmanLUT(&lut, prefix, symbols); err != nil {
+		return lut, 0, err
+	}
+	return lut, numSymbols, nil
+}
+
+func readLegacyHuffmanGamma(r *msbReader) (int, error) {
+	zeros := 0
+	for {
+		bit, err := r.peek(zeros + 1)
+		if err != nil {
+			return 0, err
+		}
+		if bit != 0 {
+			break
+		}
+		zeros++
+		if zeros > 7 {
+			return 0, fmt.Errorf("mermaid: invalid legacy Huffman gamma value")
+		}
+	}
+	value, err := r.read(2 * (zeros + 1))
+	if err != nil {
+		return 0, err
+	}
+	return int(value) - 1, nil
+}
+
+func readLegacyHuffmanLength(r *msbReader, forced, averageBitsX4 int) (int, error) {
+	zeros := 0
+	for {
+		bit, err := r.peek(zeros + 1)
+		if err != nil {
+			return 0, err
+		}
+		if bit != 0 {
+			break
+		}
+		zeros++
+		if zeros > 20>>forced {
+			return 0, fmt.Errorf("mermaid: invalid legacy Huffman length delta")
+		}
+	}
+	value, err := r.read(zeros + forced + 1)
+	if err != nil {
+		return 0, err
+	}
+	deltaValue := int(value) + ((zeros - 1) << forced)
+	delta := -(deltaValue & 1) ^ (deltaValue >> 1)
+	length := delta + ((averageBitsX4 + 2) >> 2)
+	if length < 1 || length > 11 {
+		return 0, fmt.Errorf("mermaid: invalid legacy Huffman code length %d", length)
+	}
+	return length, nil
 }
 
 func readFluff(r *msbReader, numSymbols int) (int, error) {

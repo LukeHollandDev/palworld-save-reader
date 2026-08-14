@@ -205,6 +205,13 @@ PALWORLD_SAVE_FIXTURES=/path/to/fixtures go test ./...
 The fixture directory must contain `Level.sav`, `LevelMeta.sav`, and normal and
 `_dps.sav` files under `Players/`.
 
+To exercise only the container and Mermaid decoder against every save in a
+larger backup collection, point `PALWORLD_SAVE_CORPUS` at its root:
+
+```bash
+PALWORLD_SAVE_CORPUS=/path/to/save/backups go test ./internal/savefile -run SuppliedSaveCorpus
+```
+
 ## License
 
 Palworld Save Reader is licensed under **GPL-3.0-or-later**. See

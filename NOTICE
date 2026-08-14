@@ -14,6 +14,13 @@ carry GPL-3.0-or-later notices. Powzix's repository has no repository-level
 license file, so this notice records the per-file grant rather than implying a
 broader repository licence.
 
+Legacy Huffman code-length support was restored from that same pinned source on
+2026-08-14. Compatibility was independently checked against oozextract v0.5.5
+at commit 8875b03068f501bc82836b59c12285c5e6077bfd; oozextract was used only as a
+validation oracle and no Rust source or binary is distributed here:
+
+    https://github.com/lvlvllvlvllvlvl/oozextract/tree/8875b03068f501bc82836b59c12285c5e6077bfd
+
 The Palworld schema hints in internal/palworld/hints.go were adapted from that
 same PalworldSaveTools revision.
 

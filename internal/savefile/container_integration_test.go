@@ -8,7 +8,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/LukeHollandDev/palworld-save-reader/internal/savefixtures"
@@ -46,4 +48,50 @@ func TestDecodeSuppliedSaves(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDecodeSuppliedSaveCorpus recursively decompresses an arbitrary private
+// save corpus. It complements the structured fixture tests above: backups do
+// not always contain a complete world directory, but every .sav can still
+// protect the container and Mermaid decoder from format regressions.
+func TestDecodeSuppliedSaveCorpus(t *testing.T) {
+	root := os.Getenv("PALWORLD_SAVE_CORPUS")
+	if root == "" {
+		t.Skip("set PALWORLD_SAVE_CORPUS to a directory containing external saves")
+	}
+	count := 0
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sav" {
+			return nil
+		}
+		count++
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		t.Run(relative, func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, header, err := DecodeContainer(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(raw) != int(header.RawSize) || !bytes.HasPrefix(raw, []byte("GVAS")) {
+				t.Fatalf("decoded size/prefix = %d/%q", len(raw), raw[:min(4, len(raw))])
+			}
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count == 0 {
+		t.Fatal("private save corpus does not contain any .sav files")
+	}
+	t.Logf("decoded %d private saves", count)
 }
