@@ -60,6 +60,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -68,7 +70,7 @@ jobs:
           cache: false
 
       - name: Build
-        run: make release-build GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} OUTPUT="dist/${{ matrix.artifact }}"
+        run: make release-build GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} VERSION="$(git describe --tags --always --dirty)" OUTPUT="dist/${{ matrix.artifact }}"
 
       - name: Upload executable
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

@@ -43,6 +43,47 @@ func TestMermaidMode1NearMatches(t *testing.T) {
 	}
 }
 
+func TestMermaidMode0DeltaLiterals(t *testing.T) {
+	// Mode 0 stores literals as byte deltas from the match history at the
+	// current distance: dst[i] = literal[i] + dst[i-8] here. With an initial
+	// history of ABCDEFGH and all-one deltas, every eight-byte block shifts
+	// the alphabet one step further along.
+	history := []byte("ABCDEFGH")
+	commands := []byte{0}
+
+	table := append([]byte(nil), history...)
+	// RLE entropy stream: 248 bytes of delta value one.
+	table = append(table, 0xb3, 0xd8, 0x01, 0x01)
+	table = append(table, 0x80, 0x01) // raw command stream, one byte
+	table = append(table, commands...)
+	table = append(table, 0x00, 0x00)       // no near offsets
+	table = append(table, 0x00, 0x00, 0x00) // no far offsets
+	table = append(table, 56)               // 56 + 64 = 120 delta literals
+
+	chunkWord := 0x800000 | 0<<19 | len(table)
+	quantum := []byte{
+		byte(chunkWord >> 16), byte(chunkWord >> 8), byte(chunkWord),
+	}
+	quantum = append(quantum, table...)
+	stored := len(quantum) - 1
+	body := []byte{
+		0x8c, 0x0a,
+		byte(stored >> 16), byte(stored >> 8), byte(stored),
+	}
+	body = append(body, quantum...)
+
+	decoded, err := Decompress(body, 256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, value := range decoded {
+		want := byte('A') + byte(index%8) + byte(index/8)
+		if value != want {
+			t.Fatalf("decoded[%d] = %q, want %q", index, value, want)
+		}
+	}
+}
+
 func TestMermaidMemsetAndMultipleRawQuanta(t *testing.T) {
 	memset, err := Decompress([]byte{
 		0x8c, 0x0a,

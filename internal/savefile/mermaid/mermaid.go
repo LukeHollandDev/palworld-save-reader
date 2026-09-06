@@ -320,8 +320,13 @@ func decodeMermaidFarOffsets(src []byte, count int, outputOffset int64) ([]uint3
 }
 
 func processMermaidLZ(mode int, dst []byte, outputAt, outputSize int, table *mermaidTable) error {
-	if mode != 1 {
-		return fmt.Errorf("mermaid: mode %d is not present in the supported saves", mode)
+	// Mermaid chunk modes select how literals are stored. Mode 1 copies them
+	// verbatim. Mode 0 stores them as byte deltas from the match history at the
+	// current distance, dst[i] = literal[i] + dst[i+distance] mod 256, which is
+	// how the reference decoder's add mode works. Matches, offsets, and lengths
+	// are identical in both modes.
+	if mode != 0 && mode != 1 {
+		return fmt.Errorf("mermaid: unsupported Mermaid chunk mode %d", mode)
 	}
 	savedDistance := -mermaidInitialHistory
 	for iteration, produced := 0, 0; produced < outputSize; iteration++ {
@@ -333,7 +338,8 @@ func processMermaidLZ(mode int, dst []byte, outputAt, outputSize int, table *mer
 		if iteration > 1 {
 			return fmt.Errorf("mermaid chunk has more than two subchunks")
 		}
-		if err := processMermaidMode1(
+		if err := processMermaidSubchunk(
+			mode,
 			dst,
 			outputAt+produced,
 			size,
@@ -359,7 +365,8 @@ func processMermaidLZ(mode int, dst []byte, outputAt, outputSize int, table *mer
 	return nil
 }
 
-func processMermaidMode1(
+func processMermaidSubchunk(
+	mode int,
 	dst []byte,
 	subchunkAt, subchunkSize int,
 	commands []byte,
@@ -378,7 +385,22 @@ func processMermaidMode1(
 		if count < 0 || count > end-cursor || count > len(table.literals)-table.literalAt {
 			return fmt.Errorf("invalid Mermaid literal length %d", count)
 		}
-		copy(dst[cursor:cursor+count], table.literals[table.literalAt:table.literalAt+count])
+		if mode == 0 {
+			// Add mode stores literals as byte deltas from the match history at
+			// the current distance. The distance is always negative and every
+			// match it produced was bounds-checked, so the referenced byte is
+			// already decoded output.
+			distance := *savedDistance
+			for i := 0; i < count; i++ {
+				source := cursor + i + distance
+				if source < 0 || source >= cursor+i {
+					return fmt.Errorf("invalid Mermaid delta literal reference at %d", cursor+i)
+				}
+				dst[cursor+i] = table.literals[table.literalAt+i] + dst[source]
+			}
+		} else {
+			copy(dst[cursor:cursor+count], table.literals[table.literalAt:table.literalAt+count])
+		}
 		cursor += count
 		table.literalAt += count
 		return nil
