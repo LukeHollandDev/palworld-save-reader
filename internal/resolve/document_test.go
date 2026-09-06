@@ -128,9 +128,10 @@ func TestPlayerJSONShapeIsStable(t *testing.T) {
 //
 // It went from 1 to 2 when the guild document arrived: GroupSaveDataMap became
 // readable, so a player's guild gained a name and a member count, and "guild"
-// became a kind of its own.
+// became a kind of its own. Version 3 added roster progress and arena RP;
+// version 4 added exact self-progress keys to single-player documents.
 func TestVersionIsTheShapesOwn(t *testing.T) {
-	if Version != 2 {
+	if Version != 4 {
 		t.Errorf("Version = %d; changing it is a deliberate break, so update this test with the reason", Version)
 	}
 }

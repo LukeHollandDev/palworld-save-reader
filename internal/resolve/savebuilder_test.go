@@ -254,6 +254,26 @@ func (b *builder) mapProperty(name, keyType, valueType string, entries []mapEntr
 	})
 }
 
+type flagFixture struct {
+	key   string
+	value bool
+}
+
+func (b *builder) flagMap(name string, flags []flagFixture) {
+	entries := make([]mapEntry, 0, len(flags))
+	for _, flag := range flags {
+		var key, value builder
+		key.fstring(flag.key)
+		if flag.value {
+			value.u8(1)
+		} else {
+			value.u8(0)
+		}
+		entries = append(entries, mapEntry{key: key.bytes(), value: value.bytes()})
+	}
+	b.mapProperty(name, "NameProperty", "BoolProperty", entries)
+}
+
 // bareList is a property list with no tag in front of it, which is how a hinted
 // StructProperty map key or value is written.
 func bareList(inner func(*builder)) []byte {
@@ -383,6 +403,15 @@ type playerFixture struct {
 
 	// isPlayer omits the IsPlayer flag when false, which must be reported.
 	isPlayer bool
+
+	arenaRankPoints *int32
+	fastTravel      []flagFixture
+	areas           []flagFixture
+	bosses          []flagFixture
+	towers          []flagFixture
+	notes           []flagFixture
+	relics          []flagFixture
+	itemPickups     []flagFixture
 }
 
 // save writes the player's own .sav file.
@@ -423,6 +452,31 @@ func (player playerFixture) save() []byte {
 		if player.platform != "" {
 			save.enum("PlayerPlatform", "EPalPlayerPlatform", "EPalPlayerPlatform::"+player.platform)
 		}
+		if len(player.fastTravel)+len(player.areas)+len(player.bosses)+len(player.towers)+len(player.notes)+len(player.relics)+len(player.itemPickups) != 0 {
+			save.list("RecordData", "PalPlayerRecordData", func(record *builder) {
+				if len(player.fastTravel) != 0 {
+					record.flagMap("FastTravelPointUnlockFlag", player.fastTravel)
+				}
+				if len(player.areas) != 0 {
+					record.flagMap("FindAreaFlagMap", player.areas)
+				}
+				if len(player.bosses) != 0 {
+					record.flagMap("NormalBossDefeatFlag", player.bosses)
+				}
+				if len(player.towers) != 0 {
+					record.flagMap("TowerBossDefeatFlag", player.towers)
+				}
+				if len(player.notes) != 0 {
+					record.flagMap("NoteObtainForInstanceFlag", player.notes)
+				}
+				if len(player.relics) != 0 {
+					record.flagMap("RelicObtainForInstanceFlag", player.relics)
+				}
+				if len(player.itemPickups) != 0 {
+					record.flagMap("ItemPickupObtainForInstanceFlag", player.itemPickups)
+				}
+			})
+		}
 	})
 	properties.none()
 	return archive("/Script/Pal.PalWorldPlayerSaveGame", properties.bytes())
@@ -444,6 +498,9 @@ func (player playerFixture) record() []byte {
 		inner.float("FullStomach", player.stomach)
 		if player.isPlayer {
 			inner.boolean("IsPlayer", true)
+		}
+		if player.arenaRankPoints != nil {
+			inner.integer("ArenaRankPoint", *player.arenaRankPoints)
 		}
 	})
 	stream.none()

@@ -72,6 +72,14 @@ Each result carries a `resolveVersion`. Missing joins are reported in the
 document's `warnings` array so an empty collection can be distinguished from
 data that could not be resolved.
 
+Version 3 added compact per-player progress counters to the `roster` result:
+`fastTravelUnlocked`, `areasDiscovered`, `bossDefeats`, `towerDefeats`, and
+`arenaRankPoints`. Version 4 added exact self-only progress keys (fast-travel
+points, areas, notes, relics, item pickups, and normal and tower bosses) to
+the `player` result's `progress` object. Consumers must never republish the
+exact keys as another player's data; they identify one character's own
+completions.
+
 `roster` is the compact integration-oriented result: player ID, nickname,
 level, and guild. Use it when those fields are sufficient; `players` retains
 the complete inventory and Pal detail intended for standalone inspection.

@@ -42,6 +42,7 @@ const (
 )
 
 func testWorld() worldFixture {
+	arenaRankPoints := int32(1_825)
 	one := playerFixture{
 		uid:        id(oneUID),
 		instance:   id(oneInstance),
@@ -50,22 +51,30 @@ func testWorld() worldFixture {
 		technology: 48,
 		position:   gvas.Vector{X: 1.5, Y: -2.5, Z: 3.5},
 		// 2026-07-24T11:58:10Z, so the conversion is checked against a real date.
-		lastOnline: 639204910905580000,
-		nickname:   "Alpha",
-		level:      46,
-		exp:        1641238,
-		hp:         1500000,
-		stomach:    57.5,
-		group:      id(90),
-		common:     id(oneCommon),
-		dropSlot:   id(oneDropSlot),
-		essential:  id(oneEssential),
-		weapons:    id(oneWeapons),
-		armor:      id(oneArmor),
-		food:       id(oneFood),
-		party:      id(oneParty),
-		storage:    id(oneStorage),
-		isPlayer:   true,
+		lastOnline:      639204910905580000,
+		nickname:        "Alpha",
+		level:           46,
+		exp:             1641238,
+		hp:              1500000,
+		stomach:         57.5,
+		group:           id(90),
+		common:          id(oneCommon),
+		dropSlot:        id(oneDropSlot),
+		essential:       id(oneEssential),
+		weapons:         id(oneWeapons),
+		armor:           id(oneArmor),
+		food:            id(oneFood),
+		party:           id(oneParty),
+		storage:         id(oneStorage),
+		isPlayer:        true,
+		arenaRankPoints: &arenaRankPoints,
+		fastTravel:      []flagFixture{{"ft-1", true}, {"ft-2", true}, {"ft-hidden", false}},
+		areas:           []flagFixture{{"area-1", true}, {"area-2", true}, {"area-3", true}},
+		bosses:          []flagFixture{{"boss-1", true}, {"boss-2", false}},
+		towers:          []flagFixture{{"tower-1", true}, {"tower-2", true}},
+		notes:           []flagFixture{{"Day0", true}, {"Day1", false}, {"Day2", true}},
+		relics:          []flagFixture{{"relic-1", true}, {"relic-hidden", false}},
+		itemPickups:     []flagFixture{{"pickup-1", true}, {"pickup-2", true}},
 	}
 	two := playerFixture{
 		uid:      id(twoUID),
@@ -195,6 +204,20 @@ func TestResolvePlayersJoinsBothHalves(t *testing.T) {
 	if one.LastOnline == nil || one.LastOnline.UTC != "2026-07-24T11:58:10Z" {
 		t.Errorf("lastOnline = %v", one.LastOnline)
 	}
+	if strings.Join(one.Progress.FastTravel, ",") != "ft-1,ft-2" ||
+		strings.Join(one.Progress.Areas, ",") != "area-1,area-2,area-3" ||
+		strings.Join(one.Progress.Notes, ",") != "day0,day2" ||
+		strings.Join(one.Progress.Relics, ",") != "relic-1" ||
+		strings.Join(one.Progress.ItemPickups, ",") != "pickup-1,pickup-2" ||
+		strings.Join(one.Progress.NormalBosses, ",") != "boss-1" ||
+		strings.Join(one.Progress.TowerBosses, ",") != "tower-1,tower-2" {
+		t.Errorf("progress = %#v", one.Progress)
+	}
+	if two.Progress.FastTravel == nil || two.Progress.Areas == nil || two.Progress.Notes == nil ||
+		two.Progress.Relics == nil || two.Progress.ItemPickups == nil ||
+		two.Progress.NormalBosses == nil || two.Progress.TowerBosses == nil {
+		t.Errorf("zero progress domains are unavailable: %#v", two.Progress)
+	}
 
 	// The world-save half. A name is the thing a player.sav cannot answer.
 	if one.Character == nil {
@@ -310,8 +333,59 @@ func TestRosterOmitsPlayerOwnedCollections(t *testing.T) {
 	if roster[0].Guild == nil || roster[0].Guild.ID != id(90) {
 		t.Errorf("first roster guild = %#v", roster[0].Guild)
 	}
+	if roster[0].Character.ArenaRankPoints == nil || *roster[0].Character.ArenaRankPoints != 1_825 {
+		t.Errorf("first roster arena rank points = %#v", roster[0].Character.ArenaRankPoints)
+	}
+	if roster[0].FastTravelUnlocked == nil || *roster[0].FastTravelUnlocked != 2 ||
+		roster[0].AreasDiscovered == nil || *roster[0].AreasDiscovered != 3 ||
+		roster[0].BossDefeats == nil || *roster[0].BossDefeats != 1 ||
+		roster[0].TowerDefeats == nil || *roster[0].TowerDefeats != 2 {
+		t.Errorf("first roster progress = %#v", roster[0])
+	}
 	if roster[1].PlayerUID != id(twoUID) || roster[1].Character == nil || roster[1].Character.Nickname != "Beta" || roster[1].Character.Level != 3 {
 		t.Errorf("second roster entry = %#v", roster[1])
+	}
+	if roster[1].Character.ArenaRankPoints != nil ||
+		roster[1].FastTravelUnlocked == nil || *roster[1].FastTravelUnlocked != 0 ||
+		roster[1].AreasDiscovered == nil || *roster[1].AreasDiscovered != 0 ||
+		roster[1].BossDefeats == nil || *roster[1].BossDefeats != 0 ||
+		roster[1].TowerDefeats == nil || *roster[1].TowerDefeats != 0 {
+		t.Errorf("second roster default progress = %#v", roster[1])
+	}
+}
+
+func TestRosterProgressSchemaFailureLeavesOtherFieldsAvailable(t *testing.T) {
+	world := testWorld()
+	world.players[0].bosses = []flagFixture{{"duplicate", true}, {"DUPLICATE", true}}
+	directory := writeSaveSet(t, world, metaSave("Synthetic", 601))
+	set, err := Discover(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := Open(set, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var first *Roster
+	if err := resolver.Roster(func(player *Roster) error {
+		if player.PlayerUID == id(oneUID) {
+			first = player
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if first == nil || first.Character == nil || first.Character.Nickname != "Alpha" {
+		t.Fatalf("first roster entry = %#v", first)
+	}
+	if first.BossDefeats != nil {
+		t.Errorf("invalid boss counter = %v, want unavailable", *first.BossDefeats)
+	}
+	if first.FastTravelUnlocked == nil || *first.FastTravelUnlocked != 2 {
+		t.Errorf("valid fast-travel counter = %v", first.FastTravelUnlocked)
+	}
+	if !containsSubstring(first.Warnings, playerBossPath) {
+		t.Errorf("warnings %q do not mention %q", first.Warnings, playerBossPath)
 	}
 }
 

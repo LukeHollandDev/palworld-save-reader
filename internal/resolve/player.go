@@ -22,6 +22,13 @@ const (
 	playerLastOnlinePath = playerRoot + ".LastOnlineDateTime"
 	playerPositionPath   = playerRoot + ".LastTransform.Translation"
 	playerTechnologyPath = playerRoot + ".TechnologyPoint"
+	playerFastTravelPath = playerRoot + ".RecordData.FastTravelPointUnlockFlag"
+	playerAreaPath       = playerRoot + ".RecordData.FindAreaFlagMap"
+	playerBossPath       = playerRoot + ".RecordData.NormalBossDefeatFlag"
+	playerTowerPath      = playerRoot + ".RecordData.TowerBossDefeatFlag"
+	playerNotePath       = playerRoot + ".RecordData.NoteObtainForInstanceFlag"
+	playerRelicPath      = playerRoot + ".RecordData.RelicObtainForInstanceFlag"
+	playerItemPickupPath = playerRoot + ".RecordData.ItemPickupObtainForInstanceFlag"
 	playerPartyPath      = playerRoot + ".OtomoCharacterContainerId.ID"
 	playerStoragePath    = playerRoot + ".PalStorageContainerId.ID"
 	inventoryRoot        = playerRoot + ".InventoryInfo"
@@ -39,6 +46,7 @@ const (
 	recordHP        = "Hp.Value"
 	recordStomach   = "FullStomach"
 	recordPassives  = "PassiveSkillList"
+	recordArenaRP   = "ArenaRankPoint"
 	recordTalentHP  = "Talent_HP"
 	recordTalentSho = "Talent_Shot"
 	recordTalentDef = "Talent_Defense"
@@ -267,6 +275,7 @@ func newPlayerScan(properties gvas.Properties, uid gvas.GUID) *playerScan {
 		Pals: []Pal{},
 	}
 	player := &playerScan{document: document}
+	readPlayerProgress(properties, document)
 
 	if instance, ok := guid(properties, playerInstancePath); ok && !instance.IsZero() {
 		player.instance = instance
@@ -548,6 +557,9 @@ func (p *playerScan) readRecord(instance gvas.GUID, character palworld.Character
 	record.Exp, _ = value[int64](parameters, recordExp)
 	record.HP, _ = value[int64](parameters, recordHP)
 	record.FullStomach, _ = value[float32](parameters, recordStomach)
+	if points, ok := value[int32](parameters, recordArenaRP); ok {
+		record.ArenaRankPoints = &points
+	}
 	document.Character = record
 
 	if !character.GroupID.IsZero() {

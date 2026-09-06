@@ -19,19 +19,25 @@ import (
 //
 // Version 2 added the guild document and gave a player's guild a name and a
 // member count, which version 1 could not supply because GroupSaveDataMap was
-// not decoded. Both changes only add fields, but a consumer that branches on
-// "does a player's guild have a name" needs a number to branch on.
-const Version = 2
+// not decoded. Version 3 adds the compact roster progress counters and arena
+// rank points. Version 4 adds exact private progress keys to a single-player
+// document. These changes only add fields, but a consumer that branches on
+// their presence needs a number to branch on.
+const Version = 4
 
 // Roster is the compact player identity document used by integrations that do
 // not need inventories or owned Pals. It deliberately shares the stable player
 // and guild shapes with Player while avoiding the expensive collection passes
 // required to populate a complete Player document.
 type Roster struct {
-	PlayerUID gvas.GUID  `json:"playerUId"`
-	Character *Character `json:"character,omitempty"`
-	Guild     *GuildRef  `json:"guild,omitempty"`
-	Warnings  []string   `json:"warnings,omitempty"`
+	PlayerUID          gvas.GUID  `json:"playerUId"`
+	Character          *Character `json:"character,omitempty"`
+	Guild              *GuildRef  `json:"guild,omitempty"`
+	FastTravelUnlocked *int       `json:"fastTravelUnlocked,omitempty"`
+	AreasDiscovered    *int       `json:"areasDiscovered,omitempty"`
+	BossDefeats        *int       `json:"bossDefeats,omitempty"`
+	TowerDefeats       *int       `json:"towerDefeats,omitempty"`
+	Warnings           []string   `json:"warnings,omitempty"`
 }
 
 // Player is one resolved player: their own save joined to the world save.
@@ -48,6 +54,7 @@ type Player struct {
 	LastOnline       *Timestamp `json:"lastOnline,omitempty"`
 	Position         *Position  `json:"position,omitempty"`
 	TechnologyPoints *int32     `json:"technologyPoints,omitempty"`
+	Progress         Progress   `json:"progress"`
 
 	Character *Character `json:"character,omitempty"`
 	Guild     *GuildRef  `json:"guild,omitempty"`
@@ -61,6 +68,20 @@ type Player struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
+// Progress contains exact save keys for self-only completion matching. A
+// non-nil empty slice means the map decoded successfully and has no set flags;
+// nil means that domain could not be decoded and must be treated as unknown.
+// Consumers must never publish these keys as another player's public data.
+type Progress struct {
+	FastTravel   []string `json:"fastTravel"`
+	Areas        []string `json:"areas"`
+	Notes        []string `json:"notes"`
+	Relics       []string `json:"relics"`
+	ItemPickups  []string `json:"itemPickups"`
+	NormalBosses []string `json:"normalBosses"`
+	TowerBosses  []string `json:"towerBosses"`
+}
+
 // Character is the part of a player that lives in the world save's
 // CharacterSaveParameterMap rather than in their own save.
 //
@@ -68,9 +89,10 @@ type Player struct {
 // all -- every string in it is a GUID, an enum, or an asset name -- so the only
 // way to reach one is through this record.
 type Character struct {
-	Nickname string `json:"nickname,omitempty"`
-	Level    uint8  `json:"level"`
-	Exp      int64  `json:"exp"`
+	Nickname        string `json:"nickname,omitempty"`
+	Level           uint8  `json:"level"`
+	Exp             int64  `json:"exp"`
+	ArenaRankPoints *int32 `json:"arenaRankPoints,omitempty"`
 	// HP is Unreal's FixedPoint64 value exactly as stored. The scale is a game
 	// constant this tool does not know, so it is reported unconverted rather
 	// than divided by a guess.

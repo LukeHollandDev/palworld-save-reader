@@ -10,9 +10,9 @@ import (
 	"github.com/LukeHollandDev/palworld-save-reader/internal/palworld"
 )
 
-// Roster resolves only the account identity, character name and level, and
-// guild membership for every player.sav in the set. Unlike Players, it does not
-// read item containers or character containers and never decodes Pal records.
+// Roster resolves compact identity, guild, Arena RP, exploration, and clear
+// data for every player.sav in the set. Unlike Players, it does not read item
+// containers or character containers and never decodes Pal records.
 func (r *Resolver) Roster(visit func(*Roster) error) error {
 	entries, err := r.readRosterEntries()
 	if err != nil {
@@ -63,6 +63,7 @@ func (r *Resolver) readRosterEntries() (*rosterScan, error) {
 			return nil, fmt.Errorf("resolve: two player saves in %s claim the id %s", r.set.Directory, uid)
 		}
 		entry := &rosterEntry{document: &Roster{PlayerUID: uid}}
+		readRosterProgress(save.Properties, entry.document)
 		scan.byUID[uid] = entry
 		scan.order = append(scan.order, entry)
 	}
@@ -118,7 +119,11 @@ func (s *rosterScan) readCharacters(r *Resolver) error {
 			level = value
 		}
 		nickname, _ := value[string](parameters, recordNickname)
-		entry.document.Character = &Character{Nickname: nickname, Level: level}
+		characterDocument := &Character{Nickname: nickname, Level: level}
+		if points, ok := value[int32](parameters, recordArenaRP); ok {
+			characterDocument.ArenaRankPoints = &points
+		}
+		entry.document.Character = characterDocument
 		if !character.GroupID.IsZero() {
 			entry.document.Guild = &GuildRef{ID: character.GroupID}
 		}
